@@ -46,6 +46,14 @@ TileEntry::TileEntry ( const SGBucket& b )
       _current_view(false),
       _time_expired(-1.0)
 {
+    bool use_photoscenery = fgGetBool("/sim/rendering/photoscenery/enabled");
+    if (use_photoscenery) {
+        _orthophoto = simgear::Orthophoto::fromBucket(tile_bucket, globals->get_fg_scenery());
+        if (_orthophoto) {
+            simgear::OrthophotoManager::instance()->registerOrthophoto(tile_bucket.gen_index(), _orthophoto);
+        }
+    }
+    
     tileFileName += ".stg";
     _node->setName(tileFileName);
     // Give a default LOD range so that traversals that traverse
@@ -62,6 +70,14 @@ TileEntry::TileEntry( const TileEntry& t )
   _current_view(t._current_view),
   _time_expired(t._time_expired)
 {
+    bool use_photoscenery = fgGetBool("/sim/rendering/photoscenery/enabled");
+    if (use_photoscenery) {
+        _orthophoto = simgear::Orthophoto::fromBucket(tile_bucket, globals->get_fg_scenery());
+        if (_orthophoto) {
+            simgear::OrthophotoManager::instance()->registerOrthophoto(tile_bucket.gen_index(), _orthophoto);
+        }
+    }
+
     _node->setName(tileFileName);
     // Give a default LOD range so that traversals that traverse
     // active children (like the groundcache lookup) will work before
@@ -114,6 +130,10 @@ TileEntry::removeFromSceneGraph()
         if( parent ) {
             parent->removeChild( _node.get() );
         }
+    }
+
+    if (_orthophoto) {
+        simgear::OrthophotoManager::instance()->unregisterOrthophoto(tile_bucket.gen_index());
     }
 }
 

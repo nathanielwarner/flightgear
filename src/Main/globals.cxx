@@ -419,9 +419,6 @@ void FGGlobals::append_fg_scenery (const SGPath &path)
 
     // temporary fix so these values survive reset
     n->setAttribute(SGPropertyNode::PRESERVE, true);
-
-    // let the orthophoto manager know
-    simgear::OrthophotoManager::instance()->addSceneryPath(abspath);
 }
 
 void FGGlobals::append_read_allowed_paths(const SGPath &path)
@@ -436,7 +433,6 @@ void FGGlobals::append_read_allowed_paths(const SGPath &path)
 
 void FGGlobals::clear_fg_scenery()
 {
-    simgear::OrthophotoManager::instance()->clearSceneryPaths();
   fg_scenery.clear();
   fgGetNode("/sim", true)->removeChildren("fg-scenery");
 }
