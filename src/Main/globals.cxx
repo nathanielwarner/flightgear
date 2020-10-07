@@ -41,7 +41,6 @@
 #include <simgear/props/props_io.hxx>
 #include <simgear/scene/model/modellib.hxx>
 #include <simgear/package/Root.hxx>
-#include <simgear/scene/util/OrthophotoManager.hxx>
 
 #include <Add-ons/AddonResourceProvider.hxx>
 #include <Aircraft/controls.hxx>
