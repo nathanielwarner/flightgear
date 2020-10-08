@@ -46,13 +46,7 @@ TileEntry::TileEntry ( const SGBucket& b )
       _current_view(false),
       _time_expired(-1.0)
 {
-    bool use_photoscenery = fgGetBool("/sim/rendering/photoscenery/enabled");
-    if (use_photoscenery) {
-        _orthophoto = simgear::Orthophoto::fromBucket(tile_bucket, globals->get_fg_scenery());
-        if (_orthophoto) {
-            simgear::OrthophotoManager::instance()->registerOrthophoto(tile_bucket.gen_index(), _orthophoto);
-        }
-    }
+    _create_orthophoto();
     
     tileFileName += ".stg";
     _node->setName(tileFileName);
@@ -70,6 +64,16 @@ TileEntry::TileEntry( const TileEntry& t )
   _current_view(t._current_view),
   _time_expired(t._time_expired)
 {
+    _create_orthophoto();
+
+    _node->setName(tileFileName);
+    // Give a default LOD range so that traversals that traverse
+    // active children (like the groundcache lookup) will work before
+    // tile manager has had a chance to update this node.
+    _node->setRange(0, 0.0, 10000.0);
+}
+
+void TileEntry::_create_orthophoto() {
     bool use_photoscenery = fgGetBool("/sim/rendering/photoscenery/enabled");
     if (use_photoscenery) {
         _orthophoto = simgear::Orthophoto::fromBucket(tile_bucket, globals->get_fg_scenery());
@@ -77,12 +81,12 @@ TileEntry::TileEntry( const TileEntry& t )
             simgear::OrthophotoManager::instance()->registerOrthophoto(tile_bucket.gen_index(), _orthophoto);
         }
     }
+}
 
-    _node->setName(tileFileName);
-    // Give a default LOD range so that traversals that traverse
-    // active children (like the groundcache lookup) will work before
-    // tile manager has had a chance to update this node.
-    _node->setRange(0, 0.0, 10000.0);
+void TileEntry::_free_orthophoto() {
+    if (_orthophoto) {
+        simgear::OrthophotoManager::instance()->unregisterOrthophoto(tile_bucket.gen_index());
+    }
 }
 
 // Destructor
@@ -132,8 +136,6 @@ TileEntry::removeFromSceneGraph()
         }
     }
 
-    if (_orthophoto) {
-        simgear::OrthophotoManager::instance()->unregisterOrthophoto(tile_bucket.gen_index());
-    }
+    _free_orthophoto();
 }
 
