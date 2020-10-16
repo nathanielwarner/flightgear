@@ -124,17 +124,25 @@ Item {
                         label: qsTr("Enable crash & error reporting")
                         description: qsTr("Send crash and error reports to the development team for analysis.")
                         defaultValue: true
-                        hidden: (_osName !== "win") && (_osName !== "mac")
-                        keywords: ["crash", "report", "telemetry"]
+                        keywords: ["crash", "report", "telemetry", "sentry", "segfault"]
                         setting: "enable-sentry"
+                    },
+
+                    SettingCheckbox {
+                        id: developerMode
+                        advanced: true
+                        label: qsTr("Enable developer mode")
+                        description: qsTr("Enable simulator & aircraft development features, such as increased error messages in log files.")
+                        defaultValue: false
+                        keywords: ["develop", "developer"]
+                        setting: "develop"
                     }
                 ]
 
                 onApply: {
                     if (!showConsoleWin.hidden && showConsoleWin.checked) _config.setArg("console");
-                    if (!enableCrashReporting.hidden) {
-                        _config.setEnableDisableOption("sentry",  enableCrashReporting.checked);
-                    }
+                    _config.setEnableDisableOption("sentry",  enableCrashReporting.checked);
+                    if (developerMode.checked) _config.setArg("developer");
                 }
             }
 

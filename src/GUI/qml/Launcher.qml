@@ -25,6 +25,7 @@ Item {
         ListElement { title: qsTr("Settings"); pageSource: ""; iconPath: "qrc:///svg/toolbox-settings"; state:"settings" }
 
         ListElement { title: qsTr("Add-ons"); pageSource: "qrc:///qml/AddOns.qml"; iconPath: "qrc:///svg/toolbox-addons"; state:"loader" }
+        ListElement { title: qsTr("Help"); pageSource: "qrc:///qml/HelpSupport.qml"; iconPath: "qrc:///toolbox-help"; state:"loader" }
 
     }
 
@@ -43,6 +44,18 @@ Item {
     Component.onCompleted:
     {
        _launcher.minimumWindowSize = Qt.size(Style.strutSize * 12, sidebar.minimumHeight);
+
+        if (_launcher.versionLaunchCount == 0) {
+            popupOverlay.showOverlay(firstRun)
+        }
+    }
+
+    Component {
+        id: firstRun
+        FirstRun {
+            width: root.width
+            height: root.height
+        }
     }
 
     Connections {

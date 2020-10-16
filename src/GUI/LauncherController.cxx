@@ -56,6 +56,7 @@
 #include "StackController.hxx"
 #include "ThumbnailImageItem.hxx"
 #include "UnitsModel.hxx"
+#include "UpdateChecker.hxx"
 
 using namespace simgear::pkg;
 
@@ -132,6 +133,20 @@ LauncherController::LauncherController(QObject *parent, QWindow* window) :
         const auto ws = static_cast<Qt::WindowState>(settings.value("window-state").toInt());
         m_window->setWindowState(ws);
     }
+
+    // count launches; we use this to trigger first-run and periodic notices
+    // in the UI.
+    m_launchCount = settings.value("launch-count", 0).toInt();
+    settings.setValue("launch-count", m_launchCount + 1);
+
+    std::ostringstream os;
+    string_list versionParts = simgear::strutils::split(FLIGHTGEAR_VERSION, ".");
+    if (versionParts.size() >= 2) {
+        // build a setting key like launch-count-2020-2
+        QString versionedCountKey = QString::fromStdString("launch-count-" + versionParts.at(0) + "-" + versionParts.at(1));
+        m_versionLaunchCount = settings.value(versionedCountKey, 0).toInt();
+        settings.setValue(versionedCountKey, m_versionLaunchCount + 1);
+    }
 }
 
 void LauncherController::initQML()
@@ -139,6 +154,7 @@ void LauncherController::initQML()
     qmlRegisterUncreatableType<LauncherController>("FlightGear.Launcher", 1, 0, "LauncherController", "no");
     qmlRegisterUncreatableType<LocationController>("FlightGear.Launcher", 1, 0, "LocationController", "no");
     qmlRegisterUncreatableType<FlightPlanController>("FlightGear.Launcher", 1, 0, "FlightPlanController", "no");
+    qmlRegisterUncreatableType<UpdateChecker>("FlightGear.Launcher", 1, 0, "UpdateChecker", "for enums");
 
     qmlRegisterType<LauncherArgumentTokenizer>("FlightGear.Launcher", 1, 0, "ArgumentTokenizer");
     qmlRegisterUncreatableType<QAbstractItemModel>("FlightGear.Launcher", 1, 0, "QAIM", "no");
@@ -865,4 +881,13 @@ QUrl LauncherController::flyIconUrl() const
     }
 
     return QUrl{"qrc:///svg/toolbox-fly"};
+}
+
+QUrl LauncherController::urlToDataPath(QString relPath) const
+{
+    QString absFilePath = QString::fromStdString(globals->get_fg_root().utf8Str());
+    if (!relPath.startsWith("/")) {
+        relPath.prepend("/");
+    }
+    return QUrl::fromLocalFile(absFilePath + relPath);
 }
