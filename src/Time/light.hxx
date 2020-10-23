@@ -73,7 +73,6 @@ private:
     // (in radians)
     double _sun_angle = 0.0 , _moon_angle = 0.0;
     double _prev_sun_angle = 0.0;
-    double _tide_level_norm = 0;
 
     // the rotation around our vertical axis of the sun (relative to
     // due south with positive numbers going in the counter clockwise
@@ -125,7 +124,6 @@ private:
 
     SGPropertyNode_ptr _sunAngleRad;
     SGPropertyNode_ptr _moonAngleRad;
-    SGPropertyNode_ptr _tideLevelNorm;
 
     SGPropertyNode_ptr _humidity;
 
