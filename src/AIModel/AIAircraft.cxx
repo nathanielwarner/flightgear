@@ -998,7 +998,7 @@ void FGAIAircraft::controlSpeed(FGAIWaypoint* curr, FGAIWaypoint* next) {
  * Update target values (heading, alt, speed) depending on flight plan or control properties
  */
 void FGAIAircraft::updatePrimaryTargetValues(double dt, bool& flightplanActive, bool& aiOutOfSight) {
-    if (fp)                      // AI object has a flightplan
+    if (fp && fp->isValidPlan()) // AI object has a flightplan
     {
         //TODO make this a function of AIBase
         time_t now = globals->get_time_params()->get_cur_time();
@@ -1321,7 +1321,9 @@ bool FGAIAircraft::reachedEndOfCruise(double &distance) {
     FGAIWaypoint* curr = fp->getCurrentWaypoint();
     if (!curr) {
         SG_LOG(SG_AI, SG_WARN, "FGAIAircraft::reachedEndOfCruise: no current waypoint");
-        return false;
+
+        // return true (=done) here, so we don't just get stuck on this forever
+        return true;
     }
     
     if (curr->getName() == string("BOD")) {
