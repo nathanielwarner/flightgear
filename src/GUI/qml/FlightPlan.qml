@@ -9,7 +9,7 @@ Item {
     // same name as Summary page
     signal showSelectedLocation();
 
-    Flickable {
+    ScrolledFlickable {
         id: flick
         height: parent.height
         width: parent.width - scrollbar.width
@@ -444,7 +444,7 @@ Item {
 
     } // of flickable
 
-    Scrollbar {
+    FGCompatScrollbar {
         id: scrollbar
         anchors.right: parent.right
         height: parent.height
@@ -487,12 +487,10 @@ Item {
         }
     }
 
-    Button {
+    BackButton {
         id: backButton
         anchors { left: parent.left; top: parent.top; margins: Style.margin }
-        width: Style.strutSize
         visible: detailLoader.visible
-        text: "< Back"
         onClicked: {
             detailLoader.sourceComponent = null
         }

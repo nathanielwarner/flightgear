@@ -262,7 +262,7 @@ Item {
         anchors.topMargin: Style.margin
     }
 
-    ListView {
+    ScrolledListView {
         id: searchView
         anchors.top: headerSplit.bottom
         anchors.topMargin: Style.margin
@@ -323,13 +323,10 @@ Item {
         }
     }
 
-    Button {
+    BackButton {
         id: backButton
-
         anchors { left: parent.left; top: parent.top; margins: Style.margin }
-        width: Style.strutSize
         visible: detailLoader.visible
-        text: qsTr("< Back")
         onClicked: root.backToSearch();
     }
 }
