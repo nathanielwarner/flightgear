@@ -39,6 +39,7 @@
 #include <simgear/misc/ResourceManager.hxx>
 #include <simgear/props/propertyObject.hxx>
 #include <simgear/props/props_io.hxx>
+#include <simgear/props/AtomicChangeListener.hxx>
 #include <simgear/scene/model/modellib.hxx>
 #include <simgear/package/Root.hxx>
 
@@ -231,7 +232,9 @@ FGGlobals::~FGGlobals()
     }
 
     osgDB::Registry::instance()->clearObjectCache();
-    subsystem_mgr->remove(FGScenery::staticSubsystemClassId());
+    if (subsystem_mgr->get_subsystem(FGScenery::staticSubsystemClassId())) {
+        subsystem_mgr->remove(FGScenery::staticSubsystemClassId());
+    }
 
     // renderer touches subsystems during its destruction
     set_renderer(nullptr);
@@ -947,6 +950,8 @@ void FGGlobals::cleanupListeners()
         delete *i;
     }
     _listeners_to_cleanup.clear();
+
+    simgear::AtomicChangeListener::clearPendingChanges();
 }
 
 simgear::pkg::Root* FGGlobals::packageRoot()

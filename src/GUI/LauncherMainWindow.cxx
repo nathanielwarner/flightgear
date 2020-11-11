@@ -17,14 +17,17 @@
 #include <QQmlFileSelector>
 
 // launcher headers
-#include "QtLauncher.hxx"
+#include "AddOnsController.hxx"
+#include "AircraftItemModel.hxx"
 #include "DefaultAircraftLocator.hxx"
 #include "LaunchConfig.hxx"
-#include "LocalAircraftCache.hxx"
 #include "LauncherController.hxx"
-#include "AddOnsController.hxx"
+#include "LauncherNotificationsController.hxx"
+#include "LauncherPackageDelegate.hxx"
+#include "LocalAircraftCache.hxx"
 #include "LocationController.hxx"
-
+#include "QtLauncher.hxx"
+#include "UpdateChecker.hxx"
 
 //////////////////////////////////////////////////////////////////////////////
 
@@ -79,6 +82,15 @@ LauncherMainWindow::LauncherMainWindow(bool inSimMode) : QQuickView()
         connect(qa, &QAction::triggered, m_controller, &LauncherController::quit);
     }
 
+    if (!checkQQC2Availability()) {
+        QMessageBox::critical(nullptr, "Missing required component",
+                              tr("Your system is missing a required UI component (QtQuick Controls 2). "
+                                 "This normally occurs on Linux platforms where Qt is split into many small packages. "
+                                 "On Ubuntu/Debian systems, the package is called 'qml-module-qtquick-controls2'"));
+    }
+
+    connect(this, &QQuickView::statusChanged, this, &LauncherMainWindow::onQuickStatusChanged);
+
     m_controller->initialRestoreSettings();
 
     ////////////
@@ -99,6 +111,15 @@ LauncherMainWindow::LauncherMainWindow(bool inSimMode) : QQuickView()
     ctx->setContextProperty("_location", m_controller->location());
     ctx->setContextProperty("_osName", osName);
 
+    auto updater = new UpdateChecker(this);
+    ctx->setContextProperty("_updates", updater);
+
+    auto packageDelegate = new LauncherPackageDelegate(this);
+    ctx->setContextProperty("_packages", packageDelegate);
+
+    auto notifications = new LauncherNotificationsController{this, engine()};
+    ctx->setContextProperty("_notifications", notifications);
+
     if (!inSimMode) {
         auto addOnsCtl = new AddOnsController(this, m_controller->config());
         ctx->setContextProperty("_addOns", addOnsCtl);
@@ -116,25 +137,43 @@ LauncherMainWindow::LauncherMainWindow(bool inSimMode) : QQuickView()
     setSource(QUrl("qrc:///qml/Launcher.qml"));
 }
 
-#if 0
-void LauncherMainWindow::onQuickStatusChanged(QQuickWidget::Status status)
+void LauncherMainWindow::onQuickStatusChanged(QQuickView::Status status)
 {
-    if (status == QQuickWidget::Error) {
-        QQuickWidget* qw = qobject_cast<QQuickWidget*>(sender());
+    if (status == QQuickView::Error) {
         QString errorString;
 
-        Q_FOREACH(auto err, qw->errors()) {
+        Q_FOREACH (auto err, errors()) {
             errorString.append("\n" + err.toString());
         }
 
-        QMessageBox::critical(this, "UI loading failures.",
-                              tr("Problems occurred loading the user interface. This is often due to missing modules on your system. "
+        QMessageBox::critical(nullptr, "UI loading failures.",
+                              tr("Problems occurred loading the user interface. This is usually due to missing modules on your system. "
                                  "Please report this error to the FlightGear developer list or forum, and take care to mention your system "
-                                 "distribution, etc. Please also include the information provided below.\n")
-                              + errorString);
+                                 "distribution, etc. Please also include the information provided below.\n") +
+                                  errorString);
     }
 }
-#endif
+
+bool LauncherMainWindow::checkQQC2Availability()
+{
+    QQmlComponent comp(engine());
+    comp.setData(R"(
+               import QtQuick.Controls 2.0
+               ScrollBar {
+               }
+               )",
+                 {});
+    if (comp.isError()) {
+        return false;
+    }
+
+
+    auto item = comp.create();
+    const bool haveQQC2 = (item != nullptr);
+    if (item)
+        item->deleteLater();
+    return haveQQC2;
+}
 
 LauncherMainWindow::~LauncherMainWindow()
 {

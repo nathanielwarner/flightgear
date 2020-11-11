@@ -1,4 +1,6 @@
 import QtQuick 2.4
+import QtQuick.Controls 2.2
+
 import FlightGear 1.0
 import FlightGear.Launcher 1.0
 import "."
@@ -271,6 +273,7 @@ Item {
         model: root.locationModel
         delegate: locationSearchDelegate
         clip: true
+        ScrollBar.vertical: ScrollBar {}
 
         header: Item {
             visible: !root.showCarriers && _location.searchModel.isSearchActive
@@ -284,7 +287,7 @@ Item {
             }
 
             AnimatedImage {
-                source: "qrc://linear-spinner"
+                source: "qrc:///linear-spinner"
                 anchors.verticalCenter: parent.verticalCenter
                 anchors.left: parent.horizontalCenter
             }
@@ -323,13 +326,10 @@ Item {
         }
     }
 
-    Button {
+    BackButton {
         id: backButton
-
         anchors { left: parent.left; top: parent.top; margins: Style.margin }
-        width: Style.strutSize
         visible: detailLoader.visible
-        text: qsTr("< Back")
         onClicked: root.backToSearch();
     }
 }

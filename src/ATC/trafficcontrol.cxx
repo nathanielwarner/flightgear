@@ -615,30 +615,32 @@ void FGATCController::transmit(FGTrafficRecord * rec, FGAirportDynamics *parent,
     }
    
     SG_LOG(SG_ATC, SG_DEBUG, "transmitting for: " << sender << "Leg = " << rec->getLeg());
+
+    auto depApt = rec->getAircraft()->getTrafficRef()->getDepartureAirport();
+
     switch (rec->getLeg()) {
     case 1:
     case 2:
+        // avoid crash FLIGHTGEAR-ER
+        if (!depApt) {
+            SG_LOG(SG_ATC, SG_DEV_ALERT, "TrafficRec has empty departure airport, can't transmit");
+            return;
+        }
+
         freqId = rec->getNextFrequency();
-        stationFreq =
-            rec->getAircraft()->getTrafficRef()->getDepartureAirport()->
-            getDynamics()->getGroundFrequency(rec->getLeg() + freqId);
-        taxiFreq =
-            rec->getAircraft()->getTrafficRef()->getDepartureAirport()->
-            getDynamics()->getGroundFrequency(2);
-        towerFreq =
-            rec->getAircraft()->getTrafficRef()->getDepartureAirport()->
-            getDynamics()->getTowerFrequency(2);
-        receiver =
-            rec->getAircraft()->getTrafficRef()->getDepartureAirport()->
-            getName() + "-Ground";
-        atisInformation =
-            rec->getAircraft()->getTrafficRef()->getDepartureAirport()->
-            getDynamics()->getAtisSequence();
+        stationFreq = depApt->getDynamics()->getGroundFrequency(rec->getLeg() + freqId);
+        taxiFreq = depApt->getDynamics()->getGroundFrequency(2);
+        towerFreq = depApt->getDynamics()->getTowerFrequency(2);
+        receiver = depApt->getName() + "-Ground";
+        atisInformation = depApt->getDynamics()->getAtisSequence();
         break;
     case 3:
-        receiver =
-            rec->getAircraft()->getTrafficRef()->getDepartureAirport()->
-            getName() + "-Tower";
+        if (!depApt) {
+            SG_LOG(SG_ATC, SG_DEV_ALERT, "TrafficRec has empty departure airport, can't transmit");
+            return;
+        }
+
+        receiver = depApt->getName() + "-Tower";
         break;
     }
     
@@ -1269,6 +1271,12 @@ void FGStartupController::updateAircraftInformation(int id, double lat, double l
     setDt(getDt() + dt);
 
     int state = i->getState();
+
+    // Sentry FLIGHTGEAR-2Q : don't crash on null TrafficRef
+    if (!i->getAircraft()->getTrafficRef()) {
+        SG_LOG(SG_ATC, SG_ALERT, "AI traffic: updating aircraft without traffic ref");
+        return;
+    }
 
     // The user controlled aircraft should have crased here, because it doesn't have a traffic reference.
     // NOTE: if we create a traffic schedule for the user aircraft, we can use this to plan a flight.

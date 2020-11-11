@@ -187,22 +187,30 @@ std::tuple<SGGeod, double> runwayStartPos(FGRunwayRef runway)
     const bool overrideHoldShort = fgGetBool("/sim/presets/mp-hold-short-override", false);
 
     if (!overrideHoldShort && FGIO::isMultiplayerRequested() && (fabs(offsetNm) <0.1)) {
-        SG_LOG( SG_GENERAL, SG_WARN, "Requested to start on " << runway->airport()->ident() << "/" <<
+        SG_LOG( SG_GENERAL, SG_MANDATORY_INFO, "Requested to start on " << runway->airport()->ident() << "/" <<
                runway->ident() << ", MP is enabled so computing hold short position to avoid runway incursion");
 
         FGGroundNetwork* groundNet = runway->airport()->groundNetwork();
-        // add a margin, try to keep the entire aeroplane comfortable off the
-        // runway.
-        double margin = startOffset + (runway->widthM() * 1.5);
-        FGTaxiNodeRef taxiNode = groundNet ? groundNet->findNearestNodeOffRunway(pos, runway, margin) : FGTaxiNodeRef{};
-        if (taxiNode) {
-            // set this so multiplayer.nas can inform the user
-            fgSetBool("/sim/presets/avoided-mp-runway", true);
-            return std::make_tuple(taxiNode->geod(), SGGeodesy::courseDeg(taxiNode->geod(), pos));
-        }
 
-        // if we couldn't find a suitable taxi-node, give up. Guessing a position
-        // causes too much pain (starting in the water or similar bad things)
+        if (groundNet) {
+            // add a margin, try to keep the entire aeroplane comfortable off the
+            // runway.
+            double margin = startOffset + (runway->widthM() * 1.5);
+            FGTaxiNodeRef taxiNode = groundNet->findNearestNodeOffRunway(pos, runway, margin);
+            if (taxiNode) {
+                // set this so multiplayer.nas can inform the user
+                fgSetBool("/sim/presets/avoided-mp-runway", true);
+                return std::make_tuple(taxiNode->geod(), SGGeodesy::courseDeg(taxiNode->geod(), pos));
+            }
+            else {
+                // if we couldn't find a suitable taxi-node, give up. Guessing a position
+                // causes too much pain (starting in the water or similar bad things)
+                SG_LOG( SG_GENERAL, SG_ALERT, "Unable to position off runway because groundnet has no taxi node.");
+            }
+        }
+        else {
+            SG_LOG( SG_GENERAL, SG_ALERT, "Unable to position off runway because no groundnet.");
+        }
     }
 
     return std::make_tuple(pos, runway->headingDeg());
@@ -600,6 +608,10 @@ bool initPosition()
 
   bool set_pos = false;
 
+  // clear this value, so we don't preserve an old value and confuse
+  // the ATC manager. We will set it again if it's valid
+  fgSetString("/sim/atc/runway", "");
+
   // If glideslope is specified, then calculate offset-distance or
   // altitude relative to glide slope if either of those was not
   // specified.
@@ -683,9 +695,6 @@ bool initPosition()
     // until position finalisation
     // the rest of the work happens in finalizePosFromParkpos
     if ( airportParkingSetVicinity( apt ) ) {
-      // set tower position
-      fgSetString("/sim/airport/closest-airport-id",  apt.c_str());
-      fgSetString("/sim/tower/airport-id",  apt.c_str());
       set_pos = true;
     }
   }
@@ -693,10 +702,6 @@ bool initPosition()
   if ( !set_pos && !apt.empty() && !rwy_no.empty() ) {
     // An airport + runway is requested
     if ( fgSetPosFromAirportIDandRwy( apt, rwy_no, rwy_req ) ) {
-      // set tower position (a little off the heading for single
-      // runway airports)
-      fgSetString("/sim/airport/closest-airport-id",  apt.c_str());
-      fgSetString("/sim/tower/airport-id",  apt.c_str());
       set_pos = true;
     }
   }
@@ -704,12 +709,16 @@ bool initPosition()
   if ( !set_pos && !apt.empty() ) {
     // An airport is requested (find runway closest to hdg)
     if ( setPosFromAirportIDandHdg( apt, hdg ) ) {
-      // set tower position (a little off the heading for single
-      // runway airports)
-      fgSetString("/sim/airport/closest-airport-id",  apt.c_str());
-      fgSetString("/sim/tower/airport-id",  apt.c_str());
       set_pos = true;
     }
+  }
+
+  // if an airport ID was requested, set closest-airport-id
+  // and tower based upon it.
+  if (!apt.empty() && set_pos) {
+      // set tower position
+      fgSetString("/sim/airport/closest-airport-id", apt.c_str());
+      fgSetString("/sim/tower/airport-id", apt.c_str());
   }
 
   if (original_hdg < 9990.0) {

@@ -51,6 +51,7 @@ const int AircraftIsHelicopterRole = Qt::UserRole + 16;
 const int AircraftIsSeaplaneRole = Qt::UserRole + 17;
 const int AircraftPackageRefRole = Qt::UserRole + 19;
 const int AircraftIsFavouriteRole = Qt::UserRole + 20;
+const int AircraftPrimaryURIRole = Qt::UserRole + 21;
 
 const int AircraftStatusRole = Qt::UserRole + 22;
 const int AircraftMinVersionRole = Qt::UserRole + 23;
@@ -65,6 +66,8 @@ Q_DECLARE_METATYPE(simgear::pkg::PackageRef)
 class AircraftItemModel : public QAbstractListModel
 {
     Q_OBJECT
+
+    Q_PROPERTY(int installedAircraftCount READ installedAircraftCount NOTIFY installedAircraftCountChanged)
 
 public:
 
@@ -107,12 +110,15 @@ public:
      */
     QString nameForAircraftURI(QUrl uri) const;
 
+    int installedAircraftCount() const;
 signals:
     void aircraftInstallFailed(QModelIndex index, QString errorMessage);
     
     void aircraftInstallCompleted(QModelIndex index);
     
     void contentsChanged();
+
+    void installedAircraftCountChanged();
 private slots:
     void onScanStarted();
     void onScanAddedItems(int count);

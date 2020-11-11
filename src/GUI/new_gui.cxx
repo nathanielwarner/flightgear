@@ -218,6 +218,19 @@ NewGUI::showDialog (const string &name)
 }
 
 bool
+NewGUI::toggleDialog (const string &name)
+{
+    if (_active_dialogs.find(name) == _active_dialogs.end()) {
+        showDialog(name);
+        return true;
+    }
+    else {
+        closeDialog(name);
+        return false;
+    }
+}
+
+bool
 NewGUI::closeActiveDialog ()
 {
     if (_active_dialog == 0)
@@ -427,6 +440,23 @@ NewGUI::setStyle (void)
 
     //puSetDefaultStyle();
 
+    
+    if (0) {
+        // Re-read gui/style/*.xml files so that one can edit them and see the
+        // results without restarting flightgear.
+        SGPath  p(globals->get_fg_root(), "gui/styles");
+        SGPropertyNode* sim_gui = globals->get_props()->getNode("sim/gui/", true);
+        simgear::Dir dir(p);
+        int i = 0;
+        for (SGPath xml: dir.children(simgear::Dir::TYPE_FILE, ".xml")) {
+            SGPropertyNode_ptr node = sim_gui->getChild("style", i, true);
+            node->removeAllChildren();
+            SG_LOG(SG_GENERAL, SG_WARN, "reading from " << xml << " into " << node->getPath());
+            readProperties(xml, node);
+            i += 1;
+        }
+    }
+    
     int which = fgGetInt("/sim/gui/current-style", 0);
     SGPropertyNode *sim = globals->get_props()->getNode("sim/gui", true);
     SGPropertyNode *n = sim->getChild("style", which);

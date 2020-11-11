@@ -27,6 +27,8 @@
 #include <simgear/misc/sg_path.hxx>
 #include <simgear/props/props.hxx>
 #include <simgear/structure/commands.hxx>
+#include <simgear/structure/exception.hxx>
+#include <simgear/io/iostreams/sgstream.hxx>
 
 #include <Main/fg_init.hxx>
 #include <Main/fg_props.hxx>
@@ -36,14 +38,79 @@
 
 using namespace std;
 
+bool doesStringMatchPrefixes(const std::string& s, const std::initializer_list<const char*>& prefixes)
+{
+    if (s.empty())
+        return false;
+
+
+    for (auto c  : prefixes) {
+        if (s.find(c) == 0)
+            return true;
+    }
+
+    return false;
+}
+
+auto OSG_messageWhitelist = {
+     "PNG lib warning : iCCP: known incorrect sRGB profile",
+     "PNG lib warning : iCCP: profile 'ICC Profile': 1000000h: invalid rendering intent",
+     "osgDB ac3d reader: detected surface with less than 3",
+     "osgDB ac3d reader: detected line with less than 2"
+};
+
+auto XML_messageWhitelist = {
+     "Cannot open file",
+     "not well-formed (invalid token)",
+     "mismatched tag (from 'SimGear XML Parser')"
+};
+
 // we don't want sentry enabled for the test suite
 #if defined(HAVE_SENTRY) && !defined(BUILDING_TESTSUITE)
 
 static bool static_sentryEnabled = false;
+thread_local bool perThread_reportXMLParseErrors = true;
 
 #include <sentry.h>
 
 namespace {
+
+// this callback is invoked whenever an instance of sg_throwable is created.
+// therefore we can log the stack trace at that point
+void sentryTraceSimgearThrow(const std::string& msg, const std::string& origin, const sg_location& loc)
+{
+    if (!static_sentryEnabled)
+        return;
+
+// don't report the exceptions raised by easyxml.cxx, if this per-thread
+// flag is set. This avoids a lot of errors when the launcher scans 
+// directories containing many aircraft of unknown origin/quality
+// if the user tries to fly with one, we'll still get an error then,
+// but that's a real failure point (from the user PoV)
+    if (!perThread_reportXMLParseErrors && doesStringMatchPrefixes(msg, XML_messageWhitelist)) {
+        return;
+    }
+
+    sentry_value_t exc = sentry_value_new_object();
+    sentry_value_set_by_key(exc, "type", sentry_value_new_string("Exception"));
+
+    string message = msg;
+    if (!origin.empty()) {
+        message += " (from '" + origin + "')";
+    }
+
+    if (loc.isValid()) {
+        message += " at " + loc.asString();
+    }
+
+    sentry_value_set_by_key(exc, "value", sentry_value_new_string(message.c_str()));
+
+    sentry_value_t event = sentry_value_new_event();
+    sentry_value_set_by_key(event, "exception", exc);
+
+    sentry_event_value_add_stacktrace(event, nullptr, 0);
+    sentry_capture_event(event);
+}
 
 class SentryLogCallback : public simgear::LogCallback
 {
@@ -58,6 +125,10 @@ public:
         // or DEV_ messages, which would get noisy.
         const auto op = e.originalPriority;
         if ((op != SG_WARN) && (op != SG_ALERT)) {
+            return true;
+        }
+
+        if ((e.debugClass == SG_OSG) && doesStringMatchPrefixes(e.message, OSG_messageWhitelist)) {
             return true;
         }
 
@@ -94,6 +165,23 @@ bool sentryReportCommand(const SGPropertyNode* args, SGPropertyNode* root)
     return true;
 }
 
+bool sentrySendError(const SGPropertyNode* args, SGPropertyNode* root)
+{
+    if (!static_sentryEnabled) {
+        SG_LOG(SG_GENERAL, SG_WARN, "Sentry.io not enabled at startup");
+        return false;
+    }
+
+    try {
+        throw sg_io_exception("Invalid flurlbe", sg_location("/Some/dummy/path/bar.txt", 100, 200));
+    } catch (sg_exception& e) {
+        SG_LOG(SG_GENERAL, SG_WARN, "caught dummy exception");
+    }
+
+    return true;
+}
+
+
 void initSentry()
 {
     sentry_options_t *options = sentry_options_new();
@@ -126,10 +214,43 @@ void initSentry()
     sentry_options_add_attachment(options, logPath.c_str());
 #endif
     
+    sentry_value_t user = sentry_value_new_object();
+
+    const auto uuidPath = fgHomePath() / "sentry_uuid.txt";
+    bool generateUuid = true;
+    std::string uuid;
+    if (uuidPath.exists()) {
+        sg_ifstream f(uuidPath);
+        std::getline(f, uuid);
+        // if we read enough bytes, that this is a valid UUID, then accept it
+        if ( uuid.length() >= 36) {
+            generateUuid = false;
+        }
+    }
+
+    // we need to generate a new UUID
+    if (generateUuid) {
+        // use the Sentry APi to generate one
+        sentry_uuid_t su = sentry_uuid_new_v4();
+        char bytes[38];
+        sentry_uuid_as_string(&su, bytes);
+        bytes[37] = 0;
+
+        uuid = std::string{bytes};
+        // write it back to disk for next time
+        sg_ofstream f(uuidPath);
+        f << uuid << endl;
+    }
+
+    sentry_value_t userUuidV = sentry_value_new_string(uuid.c_str());
+    sentry_value_set_by_key(user, "id", userUuidV);
+    sentry_set_user(user);
+
     sentry_init(options);
     static_sentryEnabled = true;
 
     sglog().addCallback(new SentryLogCallback);
+    setThrowCallback(sentryTraceSimgearThrow);
 }
 
 void delayedSentryInit()
@@ -146,6 +267,7 @@ void delayedSentryInit()
     }
 
     globals->get_commands()->addCommand("sentry-report", &sentryReportCommand);
+    globals->get_commands()->addCommand("sentry-exception", &sentrySendError);
 }
 
 void shutdownSentry()
@@ -218,11 +340,13 @@ void sentryReportException(const std::string& msg, const std::string& location)
 
     sentry_value_t exc = sentry_value_new_object();
     sentry_value_set_by_key(exc, "type", sentry_value_new_string("Exception"));
-    sentry_value_set_by_key(exc, "value", sentry_value_new_string(msg.c_str()));
 
+    string message = msg;
     if (!location.empty()) {
-        sentry_value_set_by_key(exc, "location", sentry_value_new_string(location.c_str()));
+        message += " at " + location;
     }
+
+    sentry_value_set_by_key(exc, "value", sentry_value_new_string(message.c_str()));
 
     sentry_value_t event = sentry_value_new_event();
     sentry_value_set_by_key(event, "exception", exc);
@@ -237,19 +361,26 @@ void  sentryReportFatalError(const std::string& msg, const std::string& more)
     if (!static_sentryEnabled)
         return;
 
-    sentry_value_t sentryMsg = sentry_value_new_object();
-    sentry_value_set_by_key(sentryMsg, "type", sentry_value_new_string("Fatal Error"));
-    sentry_value_set_by_key(sentryMsg, "formatted", sentry_value_new_string(msg.c_str()));
+    sentry_value_t sentryMessage = sentry_value_new_object();
+    sentry_value_set_by_key(sentryMessage, "type", sentry_value_new_string("Fatal Error"));
 
+    string message = msg;
     if (!more.empty()) {
-        sentry_value_set_by_key(sentryMsg, "more", sentry_value_new_string(more.c_str()));
+        message += " (more: " + more + ")";
     }
 
+    sentry_value_set_by_key(sentryMessage, "formatted", sentry_value_new_string(message.c_str()));
+
     sentry_value_t event = sentry_value_new_event();
-    sentry_value_set_by_key(event, "message", sentryMsg);
+    sentry_value_set_by_key(event, "message", sentryMessage);
     
     sentry_event_value_add_stacktrace(event, nullptr, 0);
     sentry_capture_event(event);
+}
+
+void sentryThreadReportXMLErrors(bool report)
+{
+    perThread_reportXMLParseErrors = report;
 }
 
 } // of namespace
@@ -295,6 +426,10 @@ void sentryReportException(const std::string&, const  std::string&)
 }
 
 void sentryReportFatalError(const std::string&, const std::string&)
+{
+}
+
+void sentryThreadReportXMLErrors(bool)
 {
 }
 

@@ -1,4 +1,5 @@
 import QtQuick 2.4
+import QtQml 2.4
 import FlightGear.Launcher 1.0
 import "."
 
@@ -35,7 +36,8 @@ Item {
         }
 
         onUrlsListChanged: {
-            __currentUrl = 0;
+            var len = preview.urlsList.length;
+            __currentUrl = Math.floor(Math.random() * len)
         }
 
         Timer {
@@ -312,5 +314,5 @@ Item {
                 width: 1; height: 1
             }
         }
-    }
+    } // of summary box
 }

@@ -48,7 +48,13 @@ public:
     bool wasRejected();
 
     bool event(QEvent *event) override;
+
+private slots:
+    void onQuickStatusChanged(QQuickView::Status status);
+
 private:
+    bool checkQQC2Availability();
+
     LauncherController* m_controller;
 };
 

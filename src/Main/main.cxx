@@ -521,7 +521,9 @@ static void rotateOldLogFiles()
     if (!p.exists())
         return;
     SGPath log0Path = homePath / "fgfs_0.log";
-    p.rename(log0Path);
+    if (!p.rename(log0Path)) {
+        std::cerr << "Failed to rename " << p.str() << " to " << log0Path.str() << std::endl;
+    }
 }
 
 static void logToHome(const std::string& pri)
@@ -558,6 +560,9 @@ int fgMainInit( int argc, char **argv )
                                 "Flightgear was unable to create the lock file in FG_HOME");
     }
     
+    std::cerr << "DidInitHome" << std::endl;
+
+    
 #if defined(HAVE_QT)
     flightgear::initApp(argc, argv);
 #endif
@@ -587,10 +592,12 @@ int fgMainInit( int argc, char **argv )
         // now home is initialised, we can log to a file inside it
         const auto level = flightgear::Options::getArgValue(argc, argv, "--log-level");
         logToHome(level);
+        std::cerr << "DidLogToHome" << std::endl;
     }
 
     if (readOnlyFGHome) {
         flightgear::addSentryTag("fghome-readonly", "true");
+        std::cerr << "Read-Only-Home" << std::endl;
     }
 
     std::string version(FLIGHTGEAR_VERSION);
@@ -613,7 +620,7 @@ int fgMainInit( int argc, char **argv )
             SG_LOG( SG_GENERAL, SG_INFO, "This is OpenBSD; getrlimit() failed: " << strerror(errno));
         }
         else {
-            long long   required = 4LL * (1LL<<30);
+            unsigned long long   required = 4ULL * (1ULL<<30);
             if (rlimit.rlim_cur < required) {
                 SG_LOG( SG_GENERAL, SG_POPUP, ""
                         << "Max data segment (" << rlimit.rlim_cur << "bytes) too small.\n"
@@ -735,6 +742,10 @@ int fgMainInit( int argc, char **argv )
 
     fntInit();
     globals->get_renderer()->preinit();
+
+#if defined(ENABLE_COMPOSITOR)
+    flightgear::addSentryTag("compositor", "yes");
+#endif
 
     if (fgGetBool("/sim/ati-viewport-hack", true)) {
         SG_LOG(SG_GENERAL, SG_WARN, "Enabling ATI/AMD viewport hack");

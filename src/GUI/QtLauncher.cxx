@@ -53,13 +53,14 @@
 #include <simgear/package/Install.hxx>
 #include <simgear/debug/logstream.hxx>
 
-#include <Main/globals.hxx>
-#include <Main/fg_props.hxx>
-#include <Navaids/NavDataCache.hxx>
-#include <Navaids/navrecord.hxx>
-#include <Navaids/SHPParser.hxx>
-#include <Airports/airport.hxx>
 #include <Add-ons/AddonManager.hxx>
+#include <Airports/airport.hxx>
+#include <Main/fg_props.hxx>
+#include <Main/globals.hxx>
+#include <Main/sentryIntegration.hxx>
+#include <Navaids/NavDataCache.hxx>
+#include <Navaids/SHPParser.hxx>
+#include <Navaids/navrecord.hxx>
 
 
 #include <Main/fg_init.hxx>
@@ -68,10 +69,11 @@
 #include <Network/HTTPClient.hxx>
 #include <Viewer/WindowBuilder.hxx>
 
-#include "LauncherMainWindow.hxx"
 #include "LaunchConfig.hxx"
-#include "UnitsModel.hxx"
+#include "LauncherMainWindow.hxx"
+#include "LocalAircraftCache.hxx"
 #include "PathListModel.hxx"
+#include "UnitsModel.hxx"
 
 using namespace flightgear;
 using namespace simgear::pkg;
@@ -97,24 +99,52 @@ void initNavCache()
     const char* baseLabelKey = QT_TRANSLATE_NOOP("initNavCache", "Initialising navigation data, this may take several minutes");
     QString baseLabel= qApp->translate("initNavCache", baseLabelKey);
 
+    const auto wflags = Qt::Dialog | Qt::CustomizeWindowHint | Qt::WindowTitleHint | Qt::WindowSystemMenuHint | Qt::MSWindowsFixedSizeDialogHint;
+
+    if (NavDataCache::isAnotherProcessRebuilding()) {
+        const char* waitForOtherMsg = QT_TRANSLATE_NOOP("initNavCache", "Another copy of FlightGear is creating the navigation database. Waiting for it to finish.");
+        QString m = qApp->translate("initNavCache", waitForOtherMsg);
+
+        QProgressDialog waitForRebuild(m,
+                                       QString() /* cancel text */,
+                                       0, 0, Q_NULLPTR,
+                                       wflags);
+        waitForRebuild.setWindowModality(Qt::WindowModal);
+        waitForRebuild.setMinimumWidth(600);
+        waitForRebuild.setAutoReset(false);
+        waitForRebuild.setAutoClose(false);
+        waitForRebuild.show();
+
+        QTimer updateTimer;
+        updateTimer.setInterval(500);
+
+        QObject::connect(&updateTimer, &QTimer::timeout, [&waitForRebuild]() {
+            if (!NavDataCache::isAnotherProcessRebuilding()) {
+                waitForRebuild.done(0);
+                return;
+            }
+        });
+
+        updateTimer.start(); // timer won't actually run until we process events
+        waitForRebuild.exec();
+        updateTimer.stop();
+    }
+
     NavDataCache* cache = NavDataCache::createInstance();
     if (cache->isRebuildRequired()) {
         QProgressDialog rebuildProgress(baseLabel,
-                                       QString() /* cancel text */,
-                                       0, 100, Q_NULLPTR,
-                                       Qt::Dialog
-                                           | Qt::CustomizeWindowHint
-                                           | Qt::WindowTitleHint
-                                           | Qt::WindowSystemMenuHint
-                                           | Qt::MSWindowsFixedSizeDialogHint);
+                                        QString() /* cancel text */,
+                                        0, 100, Q_NULLPTR,
+                                        wflags);
         rebuildProgress.setWindowModality(Qt::WindowModal);
         rebuildProgress.setMinimumWidth(600);
         rebuildProgress.setAutoReset(false);
         rebuildProgress.setAutoClose(false);
         rebuildProgress.show();
-    
+
         QTimer updateTimer;
         updateTimer.setInterval(100);
+
         QObject::connect(&updateTimer, &QTimer::timeout, [&cache, &rebuildProgress, &baseLabel]() {
             auto phase = cache->rebuild();
             if (phase == NavDataCache::REBUILD_DONE) {
@@ -225,7 +255,7 @@ static void simgearMessageOutput(QtMsgType type, const QMessageLogContext &conte
     const char* file = context.file ? context.file : nullFile;
     const auto s = msg.toStdString();
     // important we copy the file name here, since QMessageLogContext doesn't
-    sglog().logCopyingFilename(SG_GUI, mappedPriority, file, context.line, s);
+    sglog().logCopyingFilename(SG_GUI, mappedPriority, file, context.line, "" /*function*/, s);
     if (type == QtFatalMsg) {
         abort();
     }
@@ -500,6 +530,10 @@ bool runLauncherDialog()
         return false; // quit
     }
 
+    // avoid a race-y crash on the locale, if a scan thread is
+    // still running: this reset will cancel any running scan
+    LocalAircraftCache::reset();
+
     // don't set scenery paths twice
     globals->clear_fg_scenery();
     globals->get_locale()->clear();
@@ -533,6 +567,8 @@ static const char* static_lockFileDialog_Info =
 
 LockFileDialogResult showLockFileDialog()
 {
+    flightgear::addSentryBreadcrumb("showing lock-file dialog", "info");
+
     QString title = qApp->translate("LockFileDialog", static_lockFileDialog_Title);
     QString text = qApp->translate("LockFileDialog", static_lockFileDialog_Text);
     QString infoText = qApp->translate("LockFileDialog", static_lockFileDialog_Info);

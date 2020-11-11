@@ -68,6 +68,7 @@
 #include <Navaids/NavDataCache.hxx>
 #include "globals.hxx"
 #include "fg_init.hxx"
+#include "fg_os.hxx"
 #include "fg_props.hxx"
 #include "options.hxx"
 #include "util.hxx"
@@ -1587,8 +1588,12 @@ fgOptLoadTape(const char* arg)
       SGPropertyNode_ptr arg = new SGPropertyNode();
       arg->setStringValue("tape", _tape.utf8Str() );
       arg->setBoolValue( "same-aircraft", 0 );
-      replay->loadTape(arg);
-
+      if (!replay->loadTape(arg)) {
+        // Force shutdown.
+        SG_LOG(SG_GENERAL, SG_POPUP, "Exiting because unable to load fgtape: " << _tape.str());
+        flightgear::modalMessageBox("Exiting because unable to load fgtape", _tape.str(), "");
+        fgOSExit(1);
+      }
       delete this; // commence suicide
     }
   private:
@@ -2992,8 +2997,14 @@ OptionResult Options::setupRoot(int argc, char** argv)
         SG_LOG(SG_GENERAL, SG_INFO, "set from FG_ROOT env var: fg_root = " << root );
     } else {
 #if defined(HAVE_QT)
-        root = SetupRootDialog::restoreUserSelectedRoot();
+        auto restoreResult = SetupRootDialog::restoreUserSelectedRoot(root);
+        if (restoreResult == SetupRootDialog::UserExit) {
+            return FG_OPTIONS_EXIT;
+        } else if (restoreResult == SetupRootDialog::UseDefault) {
+            root = SGPath{}; // clear any value, so we fall through in root.isNull() below
+        }
 #endif
+
         if (root.isNull()) {
             usingDefaultRoot = true;
             root = platformDefaultRoot();

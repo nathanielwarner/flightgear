@@ -27,9 +27,7 @@
 //
 //////////////////////////////////////////////////////////////////////
 
-#ifdef HAVE_CONFIG_H
 #include <config.h>
-#endif
 
 #include <iostream>
 #include <algorithm>
@@ -54,6 +52,7 @@
 #include "MPServerResolver.hxx"
 #include <FDM/flightProperties.hxx>
 #include <Time/TimeManager.hxx>
+#include <Main/sentryIntegration.hxx>
 
 #if defined(_MSC_VER) || defined(__MINGW32__)
 #include <WS2tcpip.h>
@@ -1072,7 +1071,9 @@ FGMultiplayMgr::init (void)
   fgSetBool("/sim/multiplay/online", true);
   mInitialised = true;
 
-  SG_LOG(SG_NETWORK, SG_ALERT, "Multiplayer mode active!");
+  
+  SG_LOG(SG_NETWORK, SG_MANDATORY_INFO, "Multiplayer mode active");
+  flightgear::addSentryTag("mp", "active");
 
   if (!fgGetBool("/sim/ai/enabled"))
   {
@@ -1707,6 +1708,9 @@ int FGMultiplayMgr::GetMsgNetwork(MsgBuf& msgBuf, simgear::IPAddress& SenderAddr
         //  returned will only be that of the next
         //  packet waiting to be processed.
         //////////////////////////////////////////////////
+        if (!mSocket) {
+            return 0;
+        }
         int RecvStatus = mSocket->recvfrom(msgBuf.Msg, sizeof(msgBuf.Msg), 0,
                                   &SenderAddress);
         //////////////////////////////////////////////////
@@ -1831,8 +1835,9 @@ int FGMultiplayMgr::GetMsg(MsgBuf& msgBuf, simgear::IPAddress& SenderAddress)
 void
 FGMultiplayMgr::update(double dt)
 {
-  if (!mInitialised)
-    return;
+  // We carry on even if !mInitialised, in case we are replaying a multiplayer
+  // recording.
+  //
 
   /// Just for expiry
   long stamp = SGTimeStamp::now().getSeconds();
@@ -1846,7 +1851,8 @@ FGMultiplayMgr::update(double dt)
   }
 
   //////////////////////////////////////////////////
-  //  Read the receive socket and process any data
+  //  Read from receive socket and/or multiplayer
+  //  replay, and process any data.
   //////////////////////////////////////////////////
   ssize_t bytes;
   do {

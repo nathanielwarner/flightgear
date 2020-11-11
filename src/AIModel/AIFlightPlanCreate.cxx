@@ -320,7 +320,7 @@ bool FGAIFlightPlan::createTakeoffTaxi(FGAIAircraft * ac, bool firstFlight,
     }
     
     FGTaxiRoute taxiRoute;
-    if ( runwayNode )
+    if ( runwayNode && node)
         taxiRoute = gn->findShortestRoute(node, runwayNode);
 
     // This may happen with buggy ground networks
@@ -531,6 +531,13 @@ bool FGAIFlightPlan::createTakeOff(FGAIAircraft * ac, bool firstFlight,
         apt->getDynamics()->getActiveRunway(rwyClass, 1, activeRunway,
                                             heading);
     }
+
+    // this is Sentry issue FLIGHTGEAR-DS : happens after reposition,
+    // likely firstFlight is false, but activeRunway is stale
+    if (!apt->hasRunwayWithIdent(activeRunway)) {
+        SG_LOG(SG_AI, SG_WARN, "FGAIFlightPlan::createTakeOff: invalid active runway:" << activeRunway);
+        return false;
+    }
   
     FGRunway * rwy = apt->getRunwayByIdent(activeRunway);
     if (!rwy)
@@ -610,10 +617,10 @@ bool FGAIFlightPlan::createClimb(FGAIAircraft * ac, bool firstFlight,
             //cerr << " Cloning waypoint " << endl;
         }
     } else {
-        FGRunway* runway = apt->getRunwayByIdent(activeRunway);
-        if (!runway)
+        if (!apt->hasRunwayWithIdent(activeRunway))
             return false;
-        
+
+        FGRunwayRef runway = apt->getRunwayByIdent(activeRunway);
         SGGeod cur = runway->end();
         if (!waypoints.empty()) {
           cur = waypoints.back()->getPos();
@@ -654,9 +661,10 @@ bool FGAIFlightPlan::createDescent(FGAIAircraft * ac, FGAirport * apt,
     double heading = ac->getTrafficRef()->getCourse();
     apt->getDynamics()->getActiveRunway(rwyClass, 2, activeRunway,
                                         heading);
-    FGRunway * rwy = apt->getRunwayByIdent(activeRunway);
-    if (!rwy)
+    if (!apt->hasRunwayWithIdent(activeRunway))
         return false;
+
+    FGRunwayRef rwy = apt->getRunwayByIdent(activeRunway);
 
     // Create a slow descent path that ends 250 lateral to the runway.
     double initialTurnRadius = getTurnRadius(vDescent, true);

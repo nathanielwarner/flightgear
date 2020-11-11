@@ -1,4 +1,5 @@
 import QtQuick 2.4
+import QtQml 2.4
 import FlightGear 1.0
 import "."
 
@@ -25,6 +26,7 @@ Item {
         ListElement { title: qsTr("Settings"); pageSource: ""; iconPath: "qrc:///svg/toolbox-settings"; state:"settings" }
 
         ListElement { title: qsTr("Add-ons"); pageSource: "qrc:///qml/AddOns.qml"; iconPath: "qrc:///svg/toolbox-addons"; state:"loader" }
+        ListElement { title: qsTr("Help"); pageSource: "qrc:///qml/HelpSupport.qml"; iconPath: "qrc:///toolbox-help"; state:"loader" }
 
     }
 
@@ -43,6 +45,18 @@ Item {
     Component.onCompleted:
     {
        _launcher.minimumWindowSize = Qt.size(Style.strutSize * 12, sidebar.minimumHeight);
+
+        if (_launcher.versionLaunchCount == 0) {
+            popupOverlay.showOverlay(firstRun)
+        }
+    }
+
+    Component {
+        id: firstRun
+        FirstRun {
+            width: root.width
+            height: root.height
+        }
     }
 
     Connections {
@@ -134,6 +148,18 @@ Item {
         }
 
         source: "qrc:///qml/Summary.qml"
+    }
+
+    NotificationArea {
+        id: notifications
+        // only show on the summary page
+        visible: sidebar.selectedPage === 0
+
+        anchors {
+            right: parent.right
+            top: parent.top
+            bottom: parent.bottom
+        }
     }
 
     function selectPage(index)

@@ -151,12 +151,12 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 #include <execinfo.h>
 #include <cxxabi.h>
 void segfault_handler(int signo) {
-  void *array[128];
-  size_t size;
 
   fprintf(stderr, "Error: caught signal %d:\n", signo);
 
   #ifndef __OpenBSD__
+  void *array[128];
+  size_t size;
   size = backtrace(array, 128);
   if (size) {
     char** list = backtrace_symbols(array, size);
@@ -269,8 +269,10 @@ int main ( int argc, char **argv )
 #endif
 
 // if we're not using the normal crash-reported, install our
-// custom segfault handler on Linux, in debug builds
-#if !defined(SG_WINDOWS) && !defined(NDEBUG)
+// custom segfault handler on Linux, in debug builds.
+// NB On OpenBSD this seems to lose info about where the signal
+// happened, so is disabled.
+#if !defined(SG_WINDOWS) && !defined(NDEBUG) && !defined(__OpenBSD__)
     if (!flightgear::isSentryEnabled()) {
         signal(SIGSEGV, segfault_handler);
     }
@@ -288,6 +290,8 @@ int main ( int argc, char **argv )
     if (flightgear::Options::checkForArg(argc, argv, "uninstall")) {
         return fgUninstall();
     }
+    
+    std::cerr << "Boostrap-1" << std::endl;
 
     bool fgviewer = flightgear::Options::checkForArg(argc, argv, "fgviewer");
     int exitStatus = EXIT_FAILURE;
@@ -307,6 +311,9 @@ int main ( int argc, char **argv )
 #endif
         std::set_terminate(fg_terminate);
         atexit(fgExitCleanup);
+        
+        std::cerr << "Boostrap-2" << std::endl;
+
         if (fgviewer) {
             exitStatus = fgviewerMain(argc, argv);
         } else {
@@ -319,10 +326,7 @@ int main ( int argc, char **argv )
             info = std::string("received from ") + t.getOrigin();
         flightgear::fatalMessageBoxWithoutExit(
           "Fatal exception", t.getFormattedMessage(), info);
-
-          flightgear::sentryReportException(t.getFormattedMessage()), t.getOrigin();
     } catch (const std::exception &e ) {
-        flightgear::sentryReportException(e.what());
         flightgear::fatalMessageBoxWithoutExit("Fatal exception", e.what());
     } catch (const std::string &s) {
         flightgear::fatalMessageBoxWithoutExit("Fatal exception", s);

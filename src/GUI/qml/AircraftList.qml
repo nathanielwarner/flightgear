@@ -8,6 +8,7 @@ FocusScope
 
     property var __model: null
     property Component __header: null
+    property Component __footer: null
     property string __lastState: "installed"
 
     function updateSelectionFromLauncher()
@@ -144,8 +145,63 @@ FocusScope
     }
 
     Component {
-        id: emptyHeader
+        id: searchHeader
+        Rectangle {
+            visible: _launcher.searchAircraftModel.count === 0
+            width: aircraftContent.width
+            height: visible ? Style.strutSize : 0
+
+            StyledText {
+                anchors.fill: parent
+                text: qsTr("No aircraft match the search.")
+                wrapMode: Text.WordWrap
+                font.pixelSize: Style.headingFontPixelSize
+                horizontalAlignment: Text.AlignHCenter
+                verticalAlignment: Text.AlignVCenter
+            }
+        }
+    }
+
+    Component {
+        id: noFavouritesHeader
+        Rectangle {
+            visible: _launcher.favouriteAircraftModel.count === 0
+            width: aircraftContent.width
+            height: visible ? Style.strutSize : 0
+
+            StyledText {
+                anchors.fill: parent
+                text: qsTr("No favourite aircraft selected: install some aircraft and mark them as favourites by clicking the \u2605")
+                wrapMode: Text.WordWrap
+                font.pixelSize: Style.headingFontPixelSize
+                horizontalAlignment: Text.AlignHCenter
+                verticalAlignment: Text.AlignVCenter
+            }
+        }
+    }
+
+
+    Component {
+        id: emptyHeaderFooter
         Item {
+        }
+    }
+
+    Component {
+        id: installMoreAircraftFooter
+        Rectangle {
+            visible: _launcher.baseAircraftModel.installedAircraftCount < 50
+            width: aircraftContent.width
+            height: Style.strutSize
+
+            StyledText {
+                anchors.fill: parent
+                text: qsTr("To install additional aircraft, click the the 'Browse' tab at the top of this page.")
+                wrapMode: Text.WordWrap
+                font.pixelSize: Style.headingFontPixelSize
+                horizontalAlignment: Text.AlignHCenter
+                verticalAlignment: Text.AlignVCenter
+            }
         }
     }
 
@@ -175,6 +231,12 @@ FocusScope
             value: root.__header
         }
 
+        Binding {
+            target: aircraftContent.item
+            property: "footer"
+            value: root.__footer
+        }
+
         Connections {
             target: aircraftContent.item
             onShowDetails: root.showDetails(uri)
@@ -202,7 +264,8 @@ FocusScope
             PropertyChanges {
                 target: root
                 __model: _launcher.installedAircraftModel
-                __header: emptyHeader
+                __header: emptyHeaderFooter
+                __footer: installMoreAircraftFooter
             }
 
             PropertyChanges {
@@ -215,7 +278,8 @@ FocusScope
             PropertyChanges {
                 target: root
                 __model: _launcher.searchAircraftModel
-                __header: emptyHeader
+                __header: searchHeader
+                __footer: emptyHeaderFooter
             }
 
             PropertyChanges {
@@ -229,6 +293,7 @@ FocusScope
                 target: root
                 __model: _launcher.browseAircraftModel
                 __header: _addOns.showNoOfficialHangar ? noDefaultCatalogHeader : ratingsHeader
+                __footer: emptyHeaderFooter
             }
 
             PropertyChanges {
@@ -241,7 +306,8 @@ FocusScope
             PropertyChanges {
                 target: root
                 __model: _launcher.aircraftWithUpdatesModel
-                __header: (_launcher.aircraftWithUpdatesModel.count > 0) ? updateAllHeader : emptyHeader
+                __header: (_launcher.aircraftWithUpdatesModel.count > 0) ? updateAllHeader : emptyHeaderFooter
+                __footer: emptyHeaderFooter
             }
 
             PropertyChanges {
@@ -255,7 +321,8 @@ FocusScope
             PropertyChanges {
                 target: root
                 __model: _launcher.favouriteAircraftModel
-                __header: emptyHeader
+                __header: noFavouritesHeader
+                __footer: emptyHeaderFooter
             }
 
             PropertyChanges {
@@ -285,11 +352,9 @@ FocusScope
         anchors.fill: parent
         visible: false
 
-        Button {
-            anchors { left: parent.left; top: parent.top; margins: Style.margin }
-            width: Style.strutSize
+        BackButton {
             id: backButton
-            text: "< Back"
+            anchors { left: parent.left; top: parent.top; margins: Style.margin }
             onClicked: root.goBack();
         }
     }

@@ -2,6 +2,7 @@
 
 #include <simgear/props/props_io.hxx>
 #include <simgear/debug/logstream.hxx>
+#include <simgear/structure/exception.hxx>
 
 #include <Main/globals.hxx>
 #include <Main/locale.hxx>
@@ -10,11 +11,21 @@ static SGPropertyNode_ptr loadXMLDefaults()
 {
     SGPropertyNode_ptr root(new SGPropertyNode);
     const SGPath defaultsXML = globals->get_fg_root() / "defaults.xml";
-    readProperties(defaultsXML, root);
+    if (!defaultsXML.exists()) {
+        SG_LOG(SG_GUI, SG_POPUP, "Failed to find required data file (defaults.xml)");
+        return {};
+    }
+
+    try {
+       readProperties(defaultsXML, root);
+    } catch (sg_exception& e) {
+        SG_LOG(SG_GUI, SG_POPUP, "Failed to read required data file (defaults.xml)");
+        return {};
+    }
 
     if (!root->hasChild("sim")) {
         SG_LOG(SG_GUI, SG_POPUP, "Failed to find /sim node in defaults.xml, broken");
-        return SGPropertyNode_ptr();
+        return {};
     }
 
     return root;
@@ -28,7 +39,7 @@ std::string defaultAirportICAO()
 {
     SGPropertyNode_ptr root = loadXMLDefaults();
     if (!root) {
-        return std::string();
+        return {};
     }
 
     std::string airportCode = root->getStringValue("/sim/presets/airport-id");
@@ -39,11 +50,16 @@ string_list defaultSplashScreenPaths()
 {
     string_list result;
     SGPath tpath = globals->get_fg_root() / "Textures";
-    simgear::Dir d(tpath);
-    for (auto c : d.children(simgear::Dir::TYPE_FILE, ".png")) {
-        if (c.file_base().find("Splash") == 0) {
-            result.push_back(c.utf8Str());
-        }
+    auto paths = simgear::Dir(tpath).children(simgear::Dir::TYPE_FILE);
+    paths.erase(std::remove_if(paths.begin(), paths.end(), [](const SGPath& p) {
+        const auto f = p.file();
+        if (f.find("Splash") != 0) return true;
+        const auto ext = p.extension();
+        return ext != "png" && ext != "jpg";
+    }), paths.end());
+
+    for (auto c : paths) {
+        result.push_back(c.utf8Str());
     }
 
     return result;

@@ -130,6 +130,12 @@ if (HAVE_QT)
                             CarriersLocationModel.hxx
                             FavouriteAircraftData.cxx
                             FavouriteAircraftData.hxx
+                            UpdateChecker.cxx
+                            UpdateChecker.hxx
+                            LauncherPackageDelegate.hxx
+                            LauncherPackageDelegate.cxx
+                            LauncherNotificationsController.hxx
+                            LauncherNotificationsController.cxx
                             ${uic_sources}
                             ${qrc_sources}
                             ${qml_sources})

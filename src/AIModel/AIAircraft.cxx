@@ -528,7 +528,7 @@ bool FGAIAircraft::loadNextLeg(double distance) {
     } else {
         double cruiseAlt = trafficRef->getCruiseAlt() * 100;
 
-        fp->create (this,
+        bool ok = fp->create (this,
                     dep,
                     arr,
                     leg+1,
@@ -542,6 +542,10 @@ bool FGAIAircraft::loadNextLeg(double distance) {
                     acType,
                     company,
                     distance);
+
+        if (!ok) {
+            SG_LOG(SG_AI, SG_WARN, "Failed to create waypoints for leg:" << leg+1);
+        }
        //cerr << "created  leg " << leg << " for " << trafficRef->getCallSign() << endl;
     }
     return true;
@@ -1022,7 +1026,7 @@ void FGAIAircraft::controlSpeed(FGAIWaypoint* curr, FGAIWaypoint* next) {
  * Update target values (heading, alt, speed) depending on flight plan or control properties
  */
 void FGAIAircraft::updatePrimaryTargetValues(double dt, bool& flightplanActive, bool& aiOutOfSight) {
-    if (fp)                      // AI object has a flightplan
+    if (fp && fp->isValidPlan()) // AI object has a flightplan
     {
         //TODO make this a function of AIBase
         time_t now = globals->get_time_params()->get_cur_time();
@@ -1231,7 +1235,7 @@ void FGAIAircraft::updateVerticalSpeedTarget(double dt) {
             } else {
                 tgt_vs = std::max(tgt_altitude_ft - altitude_ft, -_performance->descentRate());
             }
-        } else {
+        } else if (fp->getCurrentWaypoint()) {
             double vert_dist_ft = fp->getCurrentWaypoint()->getCrossat() - altitude_ft;
             double err_dist     = 0; //prev->getCrossat() - altitude_ft;
             double dist_m       = fp->getDistanceToGo(pos.getLatitudeDeg(), pos.getLongitudeDeg(), fp->getCurrentWaypoint());
@@ -1248,9 +1252,13 @@ void FGAIAircraft::updateVerticalSpeedTarget(double dt) {
             if (fabs(tgt_vs) < fabs(min_vs))
                 tgt_vs = min_vs;*/
             //cerr << "target vs : after " << tgt_vs << endl;
+        } else {
+            // avoid crashes when fp has no current waypoint
+            // eg see FLIGHTGEAR-68 on sentry; we crashed in getCrossat()
+            tgt_vs = 0.0;
         }
-    } //else 
-    //    tgt_vs = 0.0;
+    }
+
     checkTcas();
 }
 
@@ -1341,7 +1349,9 @@ bool FGAIAircraft::reachedEndOfCruise(double &distance) {
     FGAIWaypoint* curr = fp->getCurrentWaypoint();
     if (!curr) {
         SG_LOG(SG_AI, SG_WARN, "FGAIAircraft::reachedEndOfCruise: no current waypoint");
-        return false;
+
+        // return true (=done) here, so we don't just get stuck on this forever
+        return true;
     }
     
     if (curr->getName() == string("BOD")) {

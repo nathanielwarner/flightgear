@@ -91,6 +91,10 @@ class LauncherController : public QObject
     Q_PROPERTY(bool inAppMode READ inApp NOTIFY inAppChanged)
 
     Q_PROPERTY(bool aircraftGridMode READ aircraftGridMode WRITE setAircraftGridMode NOTIFY aircraftGridModeChanged)
+
+    Q_PROPERTY(int launchCount READ launchCount CONSTANT);
+    Q_PROPERTY(int versionLaunchCount READ versionLaunchCount CONSTANT);
+
 public:
     explicit LauncherController(QObject *parent, QWindow* win);
 
@@ -149,6 +153,13 @@ public:
     Q_INVOKABLE QVariant loadUISetting(QString name, QVariant defaultValue) const;
     Q_INVOKABLE void saveUISetting(QString name, QVariant value) const;
 
+    /**
+     * @brief urlToDataPath - convetr  a FGData path into a gloabl file:/// URL suitable for Qt.openExternally()
+     * @param relPath - the path rlative to FG_ROOT
+     * @return a file QUrl
+     */
+    Q_INVOKABLE QUrl urlToDataPath(QString relPath) const;
+
     LaunchConfig* config() const
     { return m_config; }
 
@@ -202,6 +213,17 @@ public:
     {
         return m_inAppMode;
     }
+
+    int launchCount() const
+    {
+        return m_launchCount;
+    }
+
+    int versionLaunchCount() const
+    {
+        return m_versionLaunchCount;
+    }
+
 signals:
 
     void selectedAircraftChanged(QUrl selectedAircraft);
@@ -217,6 +239,8 @@ signals:
     void aircraftGridModeChanged(bool aircraftGridMode);
 
     void inAppChanged();
+    void installedAircraftCountChanged(int installedAircraftCount);
+
 public slots:
     void setSelectedAircraft(QUrl selectedAircraft);
 
@@ -294,6 +318,8 @@ private:
 	bool m_keepRunningInAppMode = false;
     bool m_appModeResult = true;
     bool m_aircraftGridMode;
+    int m_launchCount = 0;
+    int m_versionLaunchCount = 0;
 };
 
 #endif // LAUNCHERCONTROLLER_HXX

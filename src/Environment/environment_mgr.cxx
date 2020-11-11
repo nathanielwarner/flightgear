@@ -48,6 +48,7 @@
 #include "terrainsampler.hxx"
 #include "Airports/airport.hxx"
 #include "gravity.hxx"
+#include "climate.hxx"
 #include "magvarmanager.hxx"
 
 class FG3DCloudsListener : public SGPropertyChangeListener {
@@ -89,6 +90,7 @@ FGEnvironmentMgr::FGEnvironmentMgr () :
   _3dCloudsEnableListener = new FG3DCloudsListener(fgClouds);
   set_subsystem("controller", Environment::LayerInterpolateController::createInstance( fgGetNode("/environment/config", true ) ));
 
+  set_subsystem("climate", new FGClimate);
   set_subsystem("precipitation", new FGPrecipitationMgr);
   set_subsystem("realwx", Environment::RealWxController::createInstance( fgGetNode("/environment/realwx", true ) ), 1.0 );
   set_subsystem("terrainsampler", Environment::TerrainSampler::createInstance( fgGetNode("/environment/terrain", true ) ));
@@ -258,9 +260,10 @@ FGEnvironmentMgr::unbind ()
 void
 FGEnvironmentMgr::update (double dt)
 {
+  SGGeod aircraftPos(globals->get_aircraft_position());
+
   SGSubsystemGroup::update(dt);
 
-    SGGeod aircraftPos(globals->get_aircraft_position());
   _environment->set_elevation_ft( aircraftPos.getElevationFt() );
 
   auto particlesManager = simgear::ParticlesGlobalManager::instance();
@@ -284,7 +287,7 @@ FGEnvironmentMgr::updateClosestAirport()
   FGAirport * nearestAirport = FGAirport::findClosest(pos, 100.0);
   if( nearestAirport == NULL )
   {
-    SG_LOG(SG_ENVIRONMENT,SG_WARN,"FGEnvironmentMgr::update: No airport within 100NM range");
+    SG_LOG(SG_ENVIRONMENT,SG_INFO,"FGEnvironmentMgr::update: No airport within 100NM range");
   }
   else
   {

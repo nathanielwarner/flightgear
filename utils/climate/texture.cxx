@@ -429,6 +429,7 @@ void
 SGTexture::write_texture(const char *name) {
    SGTexture::ImageRec *image = ImageWriteOpen(name);
 
+printf("colors: %i, height: %i, width: %i\n", num_colors, texture_height, texture_width);
    for (int c=0; c<num_colors; c++) {
       GLubyte *ptr = texture_data + c;
       for (int y=0; y<texture_height; y++) {

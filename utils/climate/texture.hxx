@@ -100,7 +100,7 @@ public:
     inline GLuint id() { return texture_id; }
     inline GLubyte *texture() { return texture_data; }
     inline void set_data(GLubyte *data) { texture_data = data; }
-    // inline void set_colors(int c) { num_colors = c; }
+    inline void set_colors(int c) { num_colors = c; }
 
     inline int width() { return texture_width; }
     inline int height() { return texture_height; }

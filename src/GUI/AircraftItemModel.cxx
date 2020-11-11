@@ -98,6 +98,8 @@ protected:
         if (aReason == STATUS_SUCCESS) {
             m_model->installSucceeded(mi);
         }
+
+        m_model->installedAircraftCountChanged();
     }
 
     void availablePackagesChanged() override
@@ -116,6 +118,7 @@ protected:
     {
         QModelIndex mi(indexForPackage(pkg));
         m_model->dataChanged(mi, mi);
+        m_model->installedAircraftCountChanged();
     }
 
 private:
@@ -245,7 +248,7 @@ QVariant AircraftItemModel::data(const QModelIndex& index, int role) const
 
     if (role == AircraftIsFavouriteRole) {
         // recursive call here, hope that's okay
-        const auto uri = data(index, AircraftURIRole).toUrl();
+        const auto uri = data(index, AircraftPrimaryURIRole).toUrl();
         return FavouriteAircraftData::instance()->isFavourite(uri);
     }
 
@@ -283,6 +286,10 @@ QVariant AircraftItemModel::dataFromItem(AircraftItemPtr item, const DelegateSta
 
         Q_ASSERT(variantIndex < item->variants.size());
         return item->variants.at(variantIndex)->name();
+    }
+
+    if (role == AircraftPrimaryURIRole) {
+        return QUrl::fromLocalFile(item->path);
     }
 
     if (state.variant) {
@@ -398,6 +405,8 @@ QVariant AircraftItemModel::dataFromPackage(const PackageRef& item, const Delega
         return static_cast<int>(item->fileSizeBytes());
     } else if (role == AircraftURIRole) {
         return QUrl("package:" + QString::fromStdString(item->qualifiedVariantId(state.variant)));
+    } else if (role == AircraftPrimaryURIRole) {
+        return QUrl("package:" + QString::fromStdString(item->qualifiedId()));
     } else if (role == AircraftHasRatingsRole) {
         return item->properties()->hasChild("rating");
     } else if ((role >= AircraftRatingRole) && (role < AircraftVariantDescriptionRole)) {
@@ -437,7 +446,7 @@ bool AircraftItemModel::setData(const QModelIndex &index, const QVariant &value,
           emit dataChanged(index, index);
           return true;
       } else if (role == AircraftIsFavouriteRole) {
-          const auto uri = data(index, AircraftURIRole).toUrl();
+          const auto uri = data(index, AircraftPrimaryURIRole).toUrl();
           bool changed = FavouriteAircraftData::instance()->setFavourite(uri, value.toBool());
           if (changed) {
               emit dataChanged(index, index);
@@ -593,6 +602,17 @@ QString AircraftItemModel::nameForAircraftURI(QUrl uri) const
     return {};
 }
 
+int AircraftItemModel::installedAircraftCount() const
+{
+    int c = m_cachedLocalAircraftCount;
+
+    for (const auto& cat : m_packageRoot->catalogs()) {
+        c += static_cast<int>(cat->installedPackages().size());
+    }
+
+    return c;
+}
+
 void AircraftItemModel::onScanAddedItems(int addedCount)
 {
     Q_UNUSED(addedCount)
@@ -606,6 +626,7 @@ void AircraftItemModel::onScanAddedItems(int addedCount)
     m_cachedLocalAircraftCount += newItemCount;
     endInsertRows();
     emit contentsChanged();
+    emit installedAircraftCountChanged();
 }
 
 void AircraftItemModel::onLocalCacheCleared()
@@ -619,6 +640,8 @@ void AircraftItemModel::onLocalCacheCleared()
         m_cachedLocalAircraftCount = 0;
         endRemoveRows();
     }
+
+    emit installedAircraftCountChanged();
 }
 
 void AircraftItemModel::installFailed(QModelIndex index, simgear::pkg::Delegate::StatusCode reason)

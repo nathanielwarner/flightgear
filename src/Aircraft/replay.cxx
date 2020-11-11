@@ -971,6 +971,10 @@ FGReplay::update( double dt )
         
             static time_t   s_last_recovery = 0;
             time_t t = time(NULL);
+            if (s_last_recovery == 0) {
+                /* Don't save immediately. */
+                s_last_recovery = t;
+            }
             
             if (t - s_last_recovery >= recovery_period_s) {
                 s_last_recovery = t;
@@ -988,6 +992,7 @@ FGReplay::update( double dt )
                 // guarantee that there is always a valid recovery tape even if
                 // flightgear crashes or is killed while we are writing.
                 //
+                path.create_dir();
                 (void) remove(path_temp.c_str());
                 std::ofstream   out;
                 bool ok = true;
@@ -998,7 +1003,8 @@ FGReplay::update( double dt )
                     rename(path_temp.c_str(), path.c_str());
                 }
                 else {
-                    popupTip("Failed to update recovery file", 2 /*delay*/);
+                    std::string message = "Failed to update recovery file: " + path.str();
+                    popupTip(message.c_str(), 3 /*delay*/);
                 }
             }
         }
@@ -1743,10 +1749,19 @@ FGReplay::loadTape(const SGPropertyNode* ConfigData)
     else
     {
         SGPropertyNode* MetaMeta = fgGetNode("/sim/gui/dialogs/flightrecorder/preview", true);
-        tapeDirectory.append(tape);
-        tapeDirectory.concat(".fgtape");
-        SG_LOG(SG_SYSTEMS, MY_SG_DEBUG, "Checking flight recorder file " << tapeDirectory << ", preview: " << Preview);
-        return loadTape(tapeDirectory, Preview, *MetaMeta);
+        SGPath tapePath;
+        if (simgear::strutils::ends_with(tape, ".fgtape"))
+        {
+            tapePath = tape;
+        }
+        else
+        {
+            tapePath = tapeDirectory;
+            tapePath.append(tape);
+            tapePath.concat(".fgtape");
+        }
+        SG_LOG(SG_SYSTEMS, MY_SG_DEBUG, "Checking flight recorder file " << tapePath << ", preview: " << Preview);
+        return loadTape(tapePath, Preview, *MetaMeta);
     }
 }
 
