@@ -63,6 +63,7 @@ public:
     double get_humidity_pct() { return _relative_humidity_gl; }
     double get_wind_kmh() { return _wind; }
 
+    void test();
 private:
     static const std::string _classification[MAX_CLIMATE_CLASSES];
     static const std::string _description[MAX_CLIMATE_CLASSES];
@@ -75,13 +76,16 @@ private:
     }
 
     // interpolate val (from 0.0 to 1.0) between min and max
-    double linear(double val, double min, double max, double offs = 0.0);
-    double triangular(double val, double min, double max, double offs = 0.0);
-    double season_even(double val, double min, double max, double offs = 0.0);
-    double season_long(double val, double min, double max, double offs = 0.0);
-    double season_long_low(double val, double min, double max, double offs = 0.0);
-    double season_long_high(double val, double min, double max, double offs = 0.0);
-    double monsoonal(double val, double min, double max, double offs = 0.0);
+    double daytime(double val, double offset = 0.0);
+    double season(double val, double offset = 0.0);
+
+    double linear(double val, double min, double max);
+    double triangular(double val, double min, double max);
+    double sinusoidal(double val, double min, double max);
+    double even(double val, double min, double max);
+    double long_low(double val, double min, double max);
+    double long_high(double val, double min, double max);
+    double monsoonal(double val, double min, double max);
 
     void set_ocean();
     void set_dry();
@@ -91,6 +95,7 @@ private:
     void set_polar();
     void set_environment();
 
+    void update_daylight();
     void update_day_factor();
     void update_season_factor();
 
@@ -117,12 +122,14 @@ private:
     double _adj_latitude_deg = 0.0;	// viewer lat adjusted for sun lat
     double _adj_longitude_deg = 0.0;	// viewer lat adjusted for sun lon
 
-    double _year = 0.0;
+    double _daytime = 0.0;
     double _day_noon = 1.0;
+    double _day_light = 1.0;
     double _season_summer = 1.0;
     double _season_transistional = 0.0;
+    double _seasons_year = 0.0;
+    double _is_autumn = -99999.0;
     bool _has_autumn = false;
-    bool _is_autumn = false;
 
     int _code = 0;			// Köppen-Geiger classicfication
 
@@ -145,7 +152,9 @@ private:
     double _temperature_gl = -99999.0;	// ground level temperature in deg. C.
     double _temperature_sl = -99999.0;	// seal level temperature in deg. C.
     double _temperature_mean_gl = -99999.0; // mean temperature in deg. C.
-    double _temperature_mean_sl = -99999.0;
+    double _temperature_mean_sl = -99999.0; // mean temperature at sea level
+    double _temperature_water = -99999.0; // mean temperature of water
+    double _temperature_seawater = -99999.0; // mean temperature of sea water
     double _precipitation = -99999.0; // minimal avg. precipitation in mm/month
     double _wind = -99999.0;		// wind in km/h
     double _precipitation_annual = -99999.0; // global

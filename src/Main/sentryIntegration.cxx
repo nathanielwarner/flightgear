@@ -56,13 +56,15 @@ auto OSG_messageWhitelist = {
      "PNG lib warning : iCCP: known incorrect sRGB profile",
      "PNG lib warning : iCCP: profile 'ICC Profile': 1000000h: invalid rendering intent",
      "osgDB ac3d reader: detected surface with less than 3",
-     "osgDB ac3d reader: detected line with less than 2"
+     "osgDB ac3d reader: detected line with less than 2",
+     "Detected particle system using segment(s) with less than 2 vertices"
 };
 
 auto XML_messageWhitelist = {
      "Cannot open file",
      "not well-formed (invalid token)",
-     "mismatched tag (from 'SimGear XML Parser')"
+     "mismatched tag (from 'SimGear XML Parser')",
+     "syntax error (from 'SimGear XML Parser')"
 };
 
 // we don't want sentry enabled for the test suite
@@ -132,9 +134,24 @@ public:
             return true;
         }
 
+        if (e.message == _lastLoggedMessage) {
+            _lastLoggedCount++;
+            return true;
+        }
+
+        if (_lastLoggedCount > 0) {
+            flightgear::addSentryBreadcrumb("(repeats " + std::to_string(_lastLoggedCount) + " times)", "info");
+            _lastLoggedCount = 0;
+        }
+
+        _lastLoggedMessage = e.message;
         flightgear::addSentryBreadcrumb(e.message, (op == SG_WARN) ? "warning" : "error");
         return true;
     }
+
+private:
+    std::string _lastLoggedMessage;
+    int _lastLoggedCount = 0;
 };
 
 } // namespace
