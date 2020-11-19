@@ -46,6 +46,11 @@
 //   the dewpoint temperature in moist air: A simple conversion and
 //   applications. Bull. Amer. Meteor. Soc., 86, 225-233.
 //   doi: http://dx.doi.org/10.1175/BAMS-86-2-225
+//
+// *  A Simple Accurate Formula for Calculating Saturation Vapor Pressure of
+//    Water and Ice. Jianhua Huang, J. Appl. Meteor. Climatol. (2018) 57 (6):
+//    1265–1272. https://doi.org/10.1175/JAMC-D-17-0334.1
+
 
 #define HOUR	(0.5/24.0)
 #define MONTH	(1.0/12.0)
@@ -70,7 +75,9 @@ void FGClimate::init()
 
     _positionLatitudeNode = fgGetNode("/position/latitude-deg", true);
     _positionLongitudeNode= fgGetNode("/position/longitude-deg", true);
-    _ground_elev_node = fgGetNode("/position/ground-elev-ft", true );
+
+    _ground_elev_node = fgGetNode("/environment/terrain/area[0]/enabled", true);
+    _gravityNode = fgGetNode("/environment/gravitational-acceleration-mps2", true);
 }
 
 void FGClimate::bind()
@@ -86,6 +93,8 @@ void FGClimate::bind()
 
     // weather properties
     _tiedProperties.Tie( "weather-update", &_weather_update);
+    _tiedProperties.Tie( "pressure-hpa", &_air_pressure_gl);
+    _tiedProperties.Tie( "pressure-sea-level-hpa", &_air_pressure_gl);
     _tiedProperties.Tie( "relative-humidity", &_relative_humidity_gl);
     _tiedProperties.Tie( "relative-humidity-sea-level", &_relative_humidity_sl);
     _tiedProperties.Tie( "dewpoint-degc", &_dewpoint_gl);
@@ -99,6 +108,7 @@ void FGClimate::bind()
     _tiedProperties.Tie( "precipitation-annual-mm", & _precipitation_annual);
     _tiedProperties.Tie( "snow-level-m", &_snow_level);
     _tiedProperties.Tie( "wind-kmph", &_wind);
+    _tiedProperties.Tie( "wind-direction-deg", &_wind_direction);
 }
 
 void FGClimate::unbind ()
@@ -124,6 +134,7 @@ void FGClimate::reinit()
     _temperature_seawater = -99999.0;
     _precipitation = -99999.0;
     _wind = -99999.0;
+    _wind_direction = -99999.0;
     _precipitation_annual = -99999.0;
 
     _is_autumn = -99999.0;
@@ -192,7 +203,7 @@ void FGClimate::update(double dt)
             color = image->getColor(s, t);
 
             // convert from color shades to koppen-classicfication
-            _code = static_cast<int>(255.0f*color[0]/4.0f);
+            _code = static_cast<int>((255.0f*color[0]+0.5)/4.0f);
 
             if (_code == 0) set_ocean();
             else if (_code < 5) set_tropical();
@@ -206,16 +217,26 @@ void FGClimate::update(double dt)
         _rootNode->getNode("description")->setStringValue(_description[_code]);
         _rootNode->getNode("classification")->setStringValue(_classification[_code]);
 
-        double alt_km;
-        alt_km = _ground_elev_node->getDoubleValue()*SG_FEET_TO_METER/1000.0;
+        update_air_pressure();
+        update_wind_direction();
+
+        double alt_ft;
+        if (_ground_elev_node->getBoolValue() &&
+            fgGetBool("/environment/terrain/area[0]/output/valid"))
+        {
+            alt_ft = fgGetDouble("/environment/terrain/area[0]/output/alt-median-ft");
+        } else {
+            alt_ft = fgGetDouble("/position/ground-elev-ft");
+        }
+        _alt_km = alt_ft*SG_FEET_TO_METER/1000.0;
 
         // Relative humidity decreases with an average of 4% per kilometer
-        _relative_humidity_sl = std::min(_relative_humidity_gl + 4.0*alt_km, 100.0);
+        _relative_humidity_sl = std::min(_relative_humidity_gl + 4.0*_alt_km, 100.0);
 
         // The temperature decreases by about 9.8°C per kilometer
-        _temperature_sl = _temperature_gl + 9.8*alt_km;
-        _temperature_mean_sl = _temperature_mean_gl + 9.8*alt_km;
-        _temperature_seawater = _temperature_water + 9.8*alt_km;
+        _temperature_sl = _temperature_gl + 9.8*_alt_km;
+        _temperature_mean_sl = _temperature_mean_gl + 9.8*_alt_km;
+        _temperature_seawater = _temperature_water + 9.8*_alt_km;
 
         _set(_snow_level, 1000.0*_temperature_mean_sl/9.8);
 
@@ -272,6 +293,80 @@ void FGClimate::update_season_factor()
     _season_transistional = 2.0*(1.0 - _season_summer) - 1.0;
     if (_season_transistional < 0.0) _season_transistional = 0.0;
     else if (_season_transistional > 1.0) _season_transistional = 1.0;
+}
+
+// https://en.wikipedia.org/wiki/Density_of_air#Humid_air
+void FGClimate::update_air_pressure()
+{
+    // saturation vapor pressure for water, Jianhua Huang:
+    double Tc = _temperature_gl;
+    double Psat = exp(34.494 - 4924.99/(Tc+237.1))/pow(Tc + 105.0, 1.57);
+
+    // vapor pressure of water
+    double Pv = 0.01*_relative_humidity_gl*Psat;
+
+    // pressure at altitude
+    static const double R0 = 8.314462618; // Universal gas constant
+    static const double P0 = 101325.0;    // Sea level standard atm. pressure
+    static const double T0 = 288.15;      // Sea level standard temperature
+    static const double L = 0.0065;       // Temperature lapse rate
+    static const double M = 0.0289654;    // Molar mass of dry air
+
+    double h = _alt_km;
+    double g = _gravityNode->getDoubleValue();
+    double P = P0*pow(1.0 - L*h/T0, g*M/(L*R0));
+
+    // partial pressure of dry air
+    double Pd = P - Pv;
+
+    // air pressure
+    _air_pressure_gl = 0.01*(Pd+Psat);	// hPa
+    _air_pressure_sl = 0.01*(P0-Pv+Psat);
+
+    // air density
+    static const double Md = 0.0289654;
+    static const double Mv = 0.018016;
+    double Tk = Tc + 273.15;
+
+    _air_density = (Pd*Md + Pv*Mv)/(Tk*R0);
+}
+
+// https://sites.google.com/site/gitakrishnareach/home/global-wind-patterns
+void FGClimate::update_wind_direction()
+{
+    double latitude_deg = _positionLatitudeNode->getDoubleValue();
+    if (latitude_deg > 60.0)
+    {
+       double val = 1.0 - (latitude_deg - 60.0)/30.0;
+       _wind_direction = linear(val, 0.0, 90.0);
+    }
+    else if (latitude_deg > 30.0)
+    {
+       double val = (latitude_deg - 30.0)/30.0;
+       _wind_direction = linear(val, 180.0, 270.0);
+    }
+    else if (latitude_deg > 0)
+    {
+      double val = 1.0 - latitude_deg/30.0;
+       _wind_direction = linear(val, 0.0, 90.0);
+    }
+    else if (latitude_deg > -30.0)
+    {
+      double val = -latitude_deg/30.0;
+       _wind_direction = linear(val, 90.0, 180.0);
+    }
+    else if (latitude_deg > -60.0)
+    {
+       double val = 1.0 - (latitude_deg + 30.0)/30.0;
+       _wind_direction = linear(val, -90.0, 0.0);
+    }
+    else
+    {
+       double val = (latitude_deg + 60.0)/30.0;
+       _wind_direction = linear(val, 90.0, 180.0);
+    }
+
+    if (_wind_direction < 0.0) _wind_direction += 360.0;
 }
 
 
@@ -846,6 +941,42 @@ void FGClimate::setEnvironmentUpdate(bool value)
     }
 }
 
+std::string FGClimate::get_metar()
+{
+    std::stringstream m;
+
+    m << std::fixed << std::setprecision(0);
+    m << "XXXX ";
+
+    m << setw(2) << std::setfill('0') << fgGetInt("/sim/time/utc/day");
+    m << setw(2) << std::setfill('0') << fgGetInt("/sim/time/utc/hour");
+    m << setw(2) << std::setfill('0') << fgGetInt("/sim/time/utc/minute");
+    m << "Z AUTO ";
+
+    m << setw(3) << std::setfill('0') << _wind_direction;
+    m << setw(2) << std::setfill('0') << _wind << "KMH ";
+
+    if (_temperature_gl < 0.0) {
+        m << "M" << setw(2) << std::setfill('0') << fabs(_temperature_gl);
+    } else {
+        m << setw(2) << std::setfill('0') << _temperature_gl;
+    }
+
+    m << "/";
+
+    if (_dewpoint_gl < 0.0) {
+        m << "M" << setw(2) << std::setfill('0') << fabs(_dewpoint_gl);
+    } else {
+        m << setw(2) << std::setfill('0') << _dewpoint_gl;
+    }
+
+    m << " Q" << _air_pressure_sl;
+
+    m << " NOSIG";
+
+    return m.str();
+}
+
 // ---------------------------------------------------------------------------
 
 const std::string FGClimate::_classification[MAX_CLIMATE_CLASSES] = {
@@ -1065,6 +1196,8 @@ void FGClimate::report()
               << std::endl;
     std::cout << "  Year (0.25 = spring .. 0.75 = autumn): " << _seasons_year
               << std::endl << std::endl;
+    std::cout << "  Dewpoint:              " << _dewpoint_gl << " deg. C."
+              << std::endl;
     std::cout << "  Ground temperature:    " << _temperature_gl << " deg. C."
               << std::endl;
     std::cout << "  Sea level temperature: " << _temperature_sl << " deg. C."
@@ -1082,9 +1215,13 @@ void FGClimate::report()
               << std::endl;
     std::cout << "  Relative humidity:     " << _relative_humidity_gl << " %"
               << std::endl;
-    std::cout << "  Dewpoint:              " << _dewpoint_gl << " deg. C."
+    std::cout << "  Ground Air Pressure:   " << _air_pressure_gl << " hPa"
               << std::endl;
-    std::cout << "  Wind: " << _wind << " km/h" << std::endl << std::endl;
+    std::cout << "  Sea level Air Pressure: " << _air_pressure_sl << " hPa"
+              << std::endl;
+    std::cout << "  Wind: " << _wind << " km/h" << std::endl;
+    std::cout << "  Wind direction: " << _wind_direction << " degrees"
+              << std::endl;
     std::cout << "  Snow level: " << _snow_level << " m." << std::endl;
     std::cout << "  Snow thickness.(0.0 = thin .. 1.0 = thick): "
               << _snow_thickness << std::endl;
@@ -1098,7 +1235,8 @@ void FGClimate::report()
               << _lichen_cover << std::endl;
     std::cout << "  Season (0.0 = summer .. 1.0 = late autumn): "
               << ((_has_autumn && _is_autumn > 0.05) ? _season_transistional : 0.0)
-              << std::endl;
+              << std::endl << std::endl;
+    std::cout << "  METAR: " << get_metar() << std::endl;
     std::cout << "===============================================" << std::endl;
 }
 #endif // REPORT_TO_CONSOLE

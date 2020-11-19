@@ -239,6 +239,23 @@ public:
   }
 };
 
+// useful for debugging 'hanging' queries: look for a statement
+// which starts but never completes
+#if 0
+int traceCallback(unsigned int traceCode, void* ctx, void* p, void* x)
+{
+    if (traceCode == SQLITE_TRACE_STMT) {
+        SG_LOG(SG_NAVCACHE, SG_WARN, "step:" << p << " text=" << (char*)x);
+    }
+    else if (traceCode == SQLITE_TRACE_PROFILE) {
+        int64_t* nanoSecs = (int64_t*)x;
+        SG_LOG(SG_NAVCACHE, SG_WARN, "profile:" << p << " took " << *nanoSecs);
+    }
+
+    return 0;
+}
+#endif
+
 class NavDataCache::NavDataCachePrivate
 {
 public:
@@ -292,6 +309,9 @@ public:
           throw sg_exception("Nav-cache file opened but is not writeable");
       }
 
+  // enable tracing for debugging stuck queries
+   //   sqlite3_trace_v2(db, SQLITE_TRACE_STMT | SQLITE_TRACE_PROFILE, traceCallback, this);
+
     sqlite3_stmt_ptr checkTables =
       prepare("SELECT count(*) FROM sqlite_master WHERE name='properties'");
 
@@ -305,6 +325,8 @@ public:
       initTables();
       didCreate = true;
     }
+
+    reset(checkTables);
 
     readPropertyQuery = prepare("SELECT value FROM properties WHERE key=?");
     writePropertyQuery = prepare("INSERT INTO properties (key, value) VALUES (?,?)");
@@ -1781,7 +1803,7 @@ void NavDataCache::commitTransaction()
         break;
       }
 
-      SGTimeStamp::sleepForMSec(++retries * 10);
+      SGTimeStamp::sleepForMSec(++retries * 100);
       SG_LOG(SG_NAVCACHE, SG_ALERT, "NavCache contention on commit, will retry:" << retries);
     } // of retry loop for DB busy
 
@@ -2106,8 +2128,15 @@ FGPositionedRef NavDataCache::findClosestWithIdent( const string& aIdent,
 
 int NavDataCache::getOctreeBranchChildren(int64_t octreeNodeId)
 {
-  sqlite3_bind_int64(d->getOctreeChildren, 1, octreeNodeId);
-  d->execSelect1(d->getOctreeChildren);
+    sqlite3_bind_int64(d->getOctreeChildren, 1, octreeNodeId);
+    if (!d->execSelect(d->getOctreeChildren)) {
+        // this can occur when in read-only mode: we don't add
+        // new Octree nodes to the real DB (only in memory),
+        // but will still call this code speculatively.
+        // see the early-return just below in defineOctreeNode
+        return 0;
+    }   
+
   int children = sqlite3_column_int(d->getOctreeChildren, 0);
   d->reset(d->getOctreeChildren);
   return children;
