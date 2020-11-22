@@ -46,6 +46,11 @@
   #include "fg_sqlite3.h"
 #endif
 
+#if defined(SG_WINDOWS)
+#define WIN32_LEAN_AND_MEAN // less crap :)
+#include <Windows.h>
+#endif
+
 // SimGear
 #include <simgear/sg_inlines.h>
 #include <simgear/structure/exception.hxx>
@@ -56,26 +61,26 @@
 #include <simgear/misc/strutils.hxx>
 #include <simgear/threads/SGThread.hxx>
 
-#include <Main/globals.hxx>
-#include <Main/fg_props.hxx>
-#include <Main/options.hxx>
+#include "CacheSchema.h"
+#include "PositionedOctree.hxx"
+#include "fix.hxx"
 #include "markerbeacon.hxx"
 #include "navrecord.hxx"
-#include <Airports/airport.hxx>
-#include <Airports/runways.hxx>
+#include "poidb.hxx"
 #include <ATC/CommStation.hxx>
-#include "fix.hxx"
+#include <Airports/airport.hxx>
+#include <Airports/apt_loader.hxx>
+#include <Airports/gnnode.hxx>
+#include <Airports/parking.hxx>
+#include <Airports/runways.hxx>
+#include <GUI/MessageBox.hxx>
+#include <Main/fg_props.hxx>
+#include <Main/globals.hxx>
+#include <Main/options.hxx>
+#include <Main/sentryIntegration.hxx>
+#include <Navaids/airways.hxx>
 #include <Navaids/fixlist.hxx>
 #include <Navaids/navdb.hxx>
-#include "PositionedOctree.hxx"
-#include <Airports/apt_loader.hxx>
-#include <Navaids/airways.hxx>
-#include "poidb.hxx"
-#include <Airports/parking.hxx>
-#include <Airports/gnnode.hxx>
-#include "CacheSchema.h"
-#include <GUI/MessageBox.hxx>
-#include <Navaids/airways.hxx>
 
 using std::string;
 
@@ -230,8 +235,26 @@ public:
                const string& ident, const SGGeod& pos) :
     FGPositioned(guid, FGPositioned::TOWER, ident, pos)
   {
+      SG_UNUSED(airport);
   }
 };
+
+// useful for debugging 'hanging' queries: look for a statement
+// which starts but never completes
+#if 0
+int traceCallback(unsigned int traceCode, void* ctx, void* p, void* x)
+{
+    if (traceCode == SQLITE_TRACE_STMT) {
+        SG_LOG(SG_NAVCACHE, SG_WARN, "step:" << p << " text=" << (char*)x);
+    }
+    else if (traceCode == SQLITE_TRACE_PROFILE) {
+        int64_t* nanoSecs = (int64_t*)x;
+        SG_LOG(SG_NAVCACHE, SG_WARN, "profile:" << p << " took " << *nanoSecs);
+    }
+
+    return 0;
+}
+#endif
 
 class NavDataCache::NavDataCachePrivate
 {
@@ -264,6 +287,10 @@ public:
           throw sg_exception("Nav-cache file is not writeable");
       }
 
+      if (outer->isAnotherProcessRebuilding()) {
+          SG_LOG(SG_NAVCACHE, SG_ALERT, "NavDataCache: init() while another processing is rebuilding the DB");
+      }
+
       int openFlags = readOnly ? SQLITE_OPEN_READONLY :
         (SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE);
       std::string pathUtf8 = path.utf8Str();
@@ -282,6 +309,9 @@ public:
           throw sg_exception("Nav-cache file opened but is not writeable");
       }
 
+  // enable tracing for debugging stuck queries
+   //   sqlite3_trace_v2(db, SQLITE_TRACE_STMT | SQLITE_TRACE_PROFILE, traceCallback, this);
+
     sqlite3_stmt_ptr checkTables =
       prepare("SELECT count(*) FROM sqlite_master WHERE name='properties'");
 
@@ -295,6 +325,8 @@ public:
       initTables();
       didCreate = true;
     }
+
+    reset(checkTables);
 
     readPropertyQuery = prepare("SELECT value FROM properties WHERE key=?");
     writePropertyQuery = prepare("INSERT INTO properties (key, value) VALUES (?,?)");
@@ -463,6 +495,7 @@ public:
   {
     if (!execSelect(stmt)) {
       SG_LOG(SG_NAVCACHE, SG_WARN, "empty SELECT running:\n\t" << sqlite3_sql(stmt));
+      flightgear::sentryReportException("empty SELECT running:" + std::string{sqlite3_sql(stmt)});
       throw sg_exception("no results returned for select", sqlite3_sql(stmt));
     }
   }
@@ -697,16 +730,18 @@ public:
                         const SGGeod& pos,
                         PositionedID airport)
   {
-    sqlite3_bind_int64(loadCommStation, 1, rowId);
-    execSelect1(loadCommStation);
+      SG_UNUSED(id);
 
-    int range = sqlite3_column_int(loadCommStation, 0);
-    int freqKhz = sqlite3_column_int(loadCommStation, 1);
-    reset(loadCommStation);
+      sqlite3_bind_int64(loadCommStation, 1, rowId);
+      execSelect1(loadCommStation);
 
-    CommStation* c = new CommStation(rowId, name, ty, pos, freqKhz, range);
-    c->setAirport(airport);
-    return c;
+      int range = sqlite3_column_int(loadCommStation, 0);
+      int freqKhz = sqlite3_column_int(loadCommStation, 1);
+      reset(loadCommStation);
+
+      CommStation* c = new CommStation(rowId, name, ty, pos, freqKhz, range);
+      c->setAirport(airport);
+      return c;
   }
 
   FGPositioned* loadNav(sqlite3_int64 rowId,
@@ -1357,8 +1392,36 @@ bool NavDataCache::isRebuildRequired()
   return false;
 }
 
+
+#if defined(SG_WINDOWS)
+static HANDLE static_fgNavCacheRebuildMutex = nullptr;
+#endif
+
+
 NavDataCache::RebuildPhase NavDataCache::rebuild()
 {
+#if defined(SG_WINDOWS)
+    if (static_fgNavCacheRebuildMutex == nullptr) {
+        // avoid multiple copies racing on the nav-cache build
+        static_fgNavCacheRebuildMutex = CreateMutexA(nullptr, FALSE, "org.flightgear.fgfs.rebuild-navcache");
+        if (static_fgNavCacheRebuildMutex == nullptr) {
+            flightgear::fatalMessageBoxThenExit("Multiple copies of Flightgear initializing",
+                                                "Failed to create mutex for nav-cache rebuild protection:" + std::to_string(GetLastError()));
+        } else if (GetLastError() == ERROR_ALREADY_EXISTS) {
+            flightgear::fatalMessageBoxThenExit("Multiple copies of Flightgear initializing",
+                                                "Multiple copies of FlightGear are trying to initialise the same navigation database. "
+                                                "This means something has gone badly wrong: please report this error.");
+        }
+
+        // accquire the mutex, so that other processes can check the status.
+        const int result = WaitForSingleObject(static_fgNavCacheRebuildMutex, 100);
+        if (result != WAIT_OBJECT_0) {
+            flightgear::fatalMessageBoxThenExit("Multiple copies of Flightgear initializing",
+                                                "Failed to lock mutex for nav-cache rebuild protection:" + std::to_string(GetLastError()));
+        }
+    }
+#endif
+
     if (!d->rebuilder.get()) {
         d->rebuilder.reset(new RebuildThread(this));
         d->rebuilder->start();
@@ -1368,8 +1431,47 @@ NavDataCache::RebuildPhase NavDataCache::rebuild()
     RebuildPhase phase = d->rebuilder->currentPhase();
     if (phase == REBUILD_DONE) {
         d->rebuilder.reset(); // all done!
+#if defined(SG_WINDOWS)
+        ReleaseMutex(static_fgNavCacheRebuildMutex);
+#endif
     }
     return phase;
+}
+
+bool NavDataCache::isAnotherProcessRebuilding()
+{
+#if defined(SG_WINDOWS)
+    if (!static_fgNavCacheRebuildMutex) {
+        static_fgNavCacheRebuildMutex = OpenMutexA(SYNCHRONIZE, FALSE, "org.flightgear.fgfs.rebuild-navcache");
+        if (!static_fgNavCacheRebuildMutex) {
+            // this is the common case: no other fgfs.exe is doing a rebuild, so
+            // the mutex does not exist. Simple, we are done
+            if (GetLastError() == ERROR_FILE_NOT_FOUND) {
+                return false;
+            }
+
+            flightgear::fatalMessageBoxThenExit("Multiple copies of Flightgear initializing",
+                                                "Unable to check if other copies of FlightGear are initializing. "
+                                                "Please report this error.");
+        }
+    }
+
+    // poll the named mutex
+    auto result = WaitForSingleObject(static_fgNavCacheRebuildMutex, 0);
+    if (result == WAIT_OBJECT_0) {
+        // we accquired it, release it and we're done
+        // (there could be multiple read-only copies in this situation)
+        ReleaseMutex(static_fgNavCacheRebuildMutex);
+        CloseHandle(static_fgNavCacheRebuildMutex);
+        return false;
+    }
+
+    // failed to accquire the mutex, so assume another FGFS.exe is rebuilding,
+    // the GU should wait.
+    return true;
+#else
+    return false; // not implemented on macOS / Linux for now
+#endif
 }
 
 unsigned int NavDataCache::rebuildPhaseCompletionPercentage() const
@@ -1692,6 +1794,7 @@ void NavDataCache::commitTransaction()
       // it's active, the DB was rolled-back
       if (sqlite3_get_autocommit(d->db)) {
         SG_LOG(SG_NAVCACHE, SG_ALERT, "commit: was rolled back!" << retries);
+        flightgear::sentryReportException("DB commit was rolled back");
         d->transactionAborted = true;
         break;
       }
@@ -1700,13 +1803,14 @@ void NavDataCache::commitTransaction()
         break;
       }
 
-      SGTimeStamp::sleepForMSec(++retries * 10);
+      SGTimeStamp::sleepForMSec(++retries * 100);
       SG_LOG(SG_NAVCACHE, SG_ALERT, "NavCache contention on commit, will retry:" << retries);
     } // of retry loop for DB busy
 
     string errMsg;
     if (result != SQLITE_DONE) {
       errMsg = sqlite3_errmsg(d->db);
+      flightgear::sentryReportException("DB error:" + errMsg + " running " + std::string{sqlite3_sql(q)});
       SG_LOG(SG_NAVCACHE, SG_ALERT, "Sqlite error:" << errMsg << " for  " << result
              << " while running:\n\t" << sqlite3_sql(q));
     }
@@ -1718,6 +1822,7 @@ void NavDataCache::commitTransaction()
 void NavDataCache::abortTransaction()
 {
   SG_LOG(SG_NAVCACHE, SG_WARN, "NavCache: aborting transaction");
+  flightgear::sentryReportException("DB aborting transactino");
 
   assert(d->transactionLevel > 0);
   if (--d->transactionLevel == 0) {
@@ -2000,8 +2105,15 @@ FGPositionedRef NavDataCache::findClosestWithIdent( const string& aIdent,
 
 int NavDataCache::getOctreeBranchChildren(int64_t octreeNodeId)
 {
-  sqlite3_bind_int64(d->getOctreeChildren, 1, octreeNodeId);
-  d->execSelect1(d->getOctreeChildren);
+    sqlite3_bind_int64(d->getOctreeChildren, 1, octreeNodeId);
+    if (!d->execSelect(d->getOctreeChildren)) {
+        // this can occur when in read-only mode: we don't add
+        // new Octree nodes to the real DB (only in memory),
+        // but will still call this code speculatively.
+        // see the early-return just below in defineOctreeNode
+        return 0;
+    }   
+
   int children = sqlite3_column_int(d->getOctreeChildren, 0);
   d->reset(d->getOctreeChildren);
   return children;
@@ -2517,11 +2629,17 @@ NavDataCache::Transaction::Transaction(NavDataCache* cache) :
     _committed(false)
 {
     assert(cache);
-    _instance->beginTransaction();
+    if (!cache->isReadOnly()) {
+      _instance->beginTransaction();
+    }
 }
 
 NavDataCache::Transaction::~Transaction()
 {
+    if (_instance->isReadOnly()) {
+        return;
+    }
+
     if (!_committed) {
         SG_LOG(SG_NAVCACHE, SG_INFO, "aborting cache transaction!");
         _instance->abortTransaction();
@@ -2530,6 +2648,10 @@ NavDataCache::Transaction::~Transaction()
 
 void NavDataCache::Transaction::commit()
 {
+    if (_instance->isReadOnly()) {
+        return;
+    }
+        
     assert(!_committed);
     _committed = true;
     _instance->commitTransaction();

@@ -400,6 +400,7 @@ Q_SIGNALS:
 protected:
     void run() override
     {
+        flightgear::addSentryBreadcrumb("AircraftScan started", "info");
         readCache();
 
         // avoid filling up Sentry with many reports
@@ -417,6 +418,7 @@ protected:
         }
 
         writeCache();
+        flightgear::addSentryBreadcrumb("AircraftScan finished", "info");
     }
 
 private:
@@ -806,6 +808,8 @@ LocalAircraftCache::readAircraftProperties(const SGPath &setPath, SGPropertyNode
     dp->setCurrentAircraftPath(setPath);
 
     ParseSetXMLResult result = ParseSetXMLResult::Failed;
+    flightgear::sentryThreadReportXMLErrors(false);
+
     try {
         readProperties(setPath, props);
         result = ParseSetXMLResult::Ok;
@@ -816,6 +820,7 @@ LocalAircraftCache::readAircraftProperties(const SGPath &setPath, SGPropertyNode
     }
 
     rm->removeProvider(dp.get());
+    flightgear::sentryThreadReportXMLErrors(true);
     return result;
 }
 
